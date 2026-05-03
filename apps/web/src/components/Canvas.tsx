@@ -69,10 +69,11 @@ export function Canvas({
   );
 
   const allowDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    if (e.dataTransfer.types.includes('text/cheatsheet-block-id')) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
-    }
+    // Always preventDefault so the drop event fires. Chrome strips
+    // custom MIME types from `types` during dragover for security, so
+    // we can't gate on the type here — we check it in handleDrop.
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
   }, []);
 
   // Snap alignment targets: every other block's edges + page edges.
@@ -83,10 +84,22 @@ export function Canvas({
       .filter((el): el is HTMLDivElement => el != null);
   }, [placements, selectedId, snapVersion]);
 
+  // Deselect when the user mousedowns on the empty page or the gray
+  // background — but never when the event came from a block (those
+  // stopPropagation in their own handler).
+  const onBgMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (e.target === e.currentTarget || e.target === pageRef.current) {
+        onSelect(null);
+      }
+    },
+    [onSelect],
+  );
+
   return (
     <div
       className="relative h-full w-full overflow-auto bg-slate-200"
-      onClick={() => onSelect(null)}
+      onMouseDown={onBgMouseDown}
     >
       <div className="flex min-h-full min-w-full items-start justify-center p-12">
         <div
@@ -95,13 +108,7 @@ export function Canvas({
           style={pageStyle}
           onDrop={handleDrop}
           onDragOver={allowDrop}
-          onClick={(e) => {
-            // clicks on the empty page deselect, but stop at the bg listener
-            if (e.target === pageRef.current) {
-              onSelect(null);
-              e.stopPropagation();
-            }
-          }}
+          onMouseDown={onBgMouseDown}
         >
           <div className="a4-margin-guide" />
 
