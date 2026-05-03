@@ -99,6 +99,9 @@ export function useUndoStack<T>({ initial, capacity = 50 }: UndoStackOptions<T>)
     });
   }, []);
 
+  // `version` is referenced here so React keeps recomputing canUndo/canRedo
+  // when the past/future refs change.
+  void version;
   return {
     state,
     set,
@@ -106,7 +109,5 @@ export function useUndoStack<T>({ initial, capacity = 50 }: UndoStackOptions<T>)
     redo,
     canUndo: past.current.length > 0,
     canRedo: future.current.length > 0,
-    // version is unused externally but keeps callers re-rendering when stacks change
-    ...({ _v: version } as object),
   };
 }

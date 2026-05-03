@@ -9,7 +9,6 @@ async function main(): Promise<void> {
   const db = getDb();
   await migrate(db, { migrationsFolder: './drizzle' });
   await closeDb();
-  // eslint-disable-next-line no-console
   console.warn('migrations applied');
 }
 

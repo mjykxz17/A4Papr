@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      SESSION_SECRET: ci-secret-thats-long-enough-32bytes
+      WORKER_SHARED_SECRET: ci-secret-thats-long-enough-32bytes
+      DATABASE_URL: postgresql://cheatsheet:cheatsheet@localhost:5432/cheatsheet
+      APP_URL: http://localhost:3000
+      WORKER_URL: http://localhost:4000
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+      SKIP_PDF_TESTS: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Test
+        run: pnpm test
