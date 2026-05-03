@@ -1,11 +1,18 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import type { Block, BlockType } from '@cheatsheet/shared';
+import {
+  MM_TO_PX,
+  defaultPlacementSize,
+  type Block,
+  type BlockPlacement,
+  type BlockType,
+} from '@cheatsheet/shared';
 import { BlockView } from './blocks/BlockView';
 
 interface SidebarProps {
   library: Block[];
+  placements: BlockPlacement[];
   onNew: () => void;
   onEdit: (block: Block) => void;
   onDelete: (block: Block) => void;
@@ -14,9 +21,23 @@ interface SidebarProps {
 
 const TYPES: Array<BlockType | 'all'> = ['all', 'text', 'formula', 'table'];
 
-export function Sidebar({ library, onNew, onEdit, onDelete, onGenerateFromNotes }: SidebarProps) {
+export function Sidebar({
+  library,
+  placements,
+  onNew,
+  onEdit,
+  onDelete,
+  onGenerateFromNotes,
+}: SidebarProps) {
   const [filter, setFilter] = useState<BlockType | 'all'>('all');
   const [query, setQuery] = useState('');
+
+  // How many times each block is currently placed on the canvas.
+  const placedCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of placements) m.set(p.blockId, (m.get(p.blockId) ?? 0) + 1);
+    return m;
+  }, [placements]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -93,30 +114,66 @@ export function Sidebar({ library, onNew, onEdit, onDelete, onGenerateFromNotes 
           </p>
         )}
         <ul className="space-y-2">
-          {filtered.map((block) => (
-            <li
-              key={block.id}
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.setData('text/cheatsheet-block-id', block.id);
-                e.dataTransfer.effectAllowed = 'copy';
-              }}
-              className="group cursor-grab rounded border border-slate-200 bg-white p-2 hover:border-accent"
-            >
-              <div className="pointer-events-none flex h-20 items-center justify-center overflow-hidden rounded bg-slate-50">
-                <div className="origin-top-left scale-50">
-                  <BlockView content={block.content} />
+          {filtered.map((block) => {
+            const placedCount = placedCounts.get(block.id) ?? 0;
+            const isPlaced = placedCount > 0;
+            // Render the preview at the block's natural mm size, then
+            // scale to fit the sidebar card width — this matches the
+            // canvas's actual proportions instead of the old fixed-height
+            // half-scale that lost everything below the fold.
+            const PREVIEW_WIDTH_PX = 232;
+            const naturalSize = defaultPlacementSize(block.type);
+            const naturalWidthPx = naturalSize.width * MM_TO_PX;
+            const naturalHeightPx = naturalSize.height * MM_TO_PX;
+            const scale = PREVIEW_WIDTH_PX / naturalWidthPx;
+            const previewHeightPx = naturalHeightPx * scale;
+            return (
+              <li
+                key={block.id}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('text/cheatsheet-block-id', block.id);
+                  e.dataTransfer.effectAllowed = 'copy';
+                }}
+                className={`group cursor-grab rounded border bg-white p-2 hover:border-accent ${
+                  isPlaced ? 'border-accent/60 bg-accent/5' : 'border-slate-200'
+                }`}
+                title={
+                  isPlaced
+                    ? `On canvas (${placedCount}× — drag again to add another)`
+                    : 'Drag onto the canvas to place'
+                }
+              >
+                <div
+                  className="pointer-events-none relative overflow-hidden rounded border border-slate-200 bg-white"
+                  style={{ height: previewHeightPx }}
+                >
+                  <div
+                    className="absolute left-0 top-0"
+                    style={{
+                      width: naturalWidthPx,
+                      height: naturalHeightPx,
+                      transform: `scale(${scale})`,
+                      transformOrigin: 'top left',
+                    }}
+                  >
+                    <BlockView content={block.content} />
+                  </div>
+                  {isPlaced && (
+                    <span className="absolute right-1 top-1 rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-medium leading-none text-white">
+                      ✓ on canvas{placedCount > 1 ? ` ×${placedCount}` : ''}
+                    </span>
+                  )}
                 </div>
-              </div>
-              <div className="mt-2 flex items-center justify-between text-xs">
-                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600">
-                  {block.type}
-                </span>
-                <span className="hidden gap-1 group-hover:flex">
-                  <button
-                    type="button"
-                    onClick={() => onEdit(block)}
-                    className="text-slate-500 hover:text-accent"
+                <div className="mt-2 flex items-center justify-between text-xs">
+                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600">
+                    {block.type}
+                  </span>
+                  <span className="hidden gap-1 group-hover:flex">
+                    <button
+                      type="button"
+                      onClick={() => onEdit(block)}
+                      className="text-slate-500 hover:text-accent"
                   >
                     edit
                   </button>
@@ -130,7 +187,8 @@ export function Sidebar({ library, onNew, onEdit, onDelete, onGenerateFromNotes 
                 </span>
               </div>
             </li>
-          ))}
+            );
+          })}
         </ul>
       </div>
     </aside>

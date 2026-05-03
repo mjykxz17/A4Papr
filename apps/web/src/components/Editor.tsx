@@ -389,6 +389,7 @@ export function Editor({
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
           library={library}
+          placements={placements}
           onNew={() => {
             setEditingBlock(null);
             setModalOpen(true);
