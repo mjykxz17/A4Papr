@@ -187,18 +187,7 @@ export function Canvas({
               snapGridWidth={pxPerMm}
               snapGridHeight={pxPerMm}
               elementGuidelines={snapElements}
-              bounds={{
-                left: 0,
-                top: 0,
-                right: PAGE_WIDTH_PX_AT_100 * zoom,
-                bottom: PAGE_HEIGHT_PX_AT_100 * zoom,
-                position: 'css',
-              }}
               /* ---------- drag ---------- */
-              onDragStart={(e) => {
-                // Seed Moveable's frame with the block's current px translate.
-                e.set([selectedPlacement.x * pxPerMm, selectedPlacement.y * pxPerMm]);
-              }}
               onDrag={({ target, transform }) => {
                 target.style.transform = transform;
               }}
@@ -227,15 +216,9 @@ export function Canvas({
                 setSnapVersion((v) => v + 1);
               }}
               /* ---------- resize ---------- */
-              onResizeStart={(e) => {
-                e.setOrigin(['%', '%']);
-                if (e.dragStart) {
-                  e.dragStart.set([
-                    selectedPlacement.x * pxPerMm,
-                    selectedPlacement.y * pxPerMm,
-                  ]);
-                }
-              }}
+              /* No onResizeStart needed — Moveable derives origin
+                 from the dragged handle so the opposite corner stays
+                 anchored. */
               onResize={({ target, width, height, drag }) => {
                 target.style.width = `${width}px`;
                 target.style.height = `${height}px`;
