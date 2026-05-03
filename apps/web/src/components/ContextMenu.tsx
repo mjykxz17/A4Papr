@@ -22,7 +22,7 @@ interface Props {
   onClose: () => void;
 }
 
-export function CanvasContextMenu({ x, y, items, onClose }: Props) {
+export function ContextMenu({ x, y, items, onClose }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();

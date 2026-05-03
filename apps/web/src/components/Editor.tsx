@@ -16,7 +16,7 @@ import { useDebouncedCallback, useIsMobile, useUndoStack } from '@/lib/hooks';
 import { BlockEditorModal } from './BlockEditorModal';
 import { CalibrationModal, readCalibration } from './CalibrationModal';
 import { Canvas } from './Canvas';
-import { CanvasContextMenu, type ContextMenuEntry } from './CanvasContextMenu';
+import { ContextMenu, type ContextMenuEntry } from './ContextMenu';
 import { ExtractModal } from './ExtractModal';
 import { MobileGate } from './MobileGate';
 import { Sidebar } from './Sidebar';
@@ -60,11 +60,11 @@ export function Editor({
   const [extractOpen, setExtractOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
-  const [contextMenu, setContextMenu] = useState<{
-    x: number;
-    y: number;
-    placementId: string;
-  } | null>(null);
+  const [contextMenu, setContextMenu] = useState<
+    | { kind: 'placement'; x: number; y: number; placementId: string }
+    | { kind: 'libraryBlock'; x: number; y: number; blockId: string }
+    | null
+  >(null);
 
   const onActualSize = useCallback(() => {
     setZoom(readCalibration());
@@ -400,6 +400,9 @@ export function Editor({
           }}
           onDelete={onDeleteBlock}
           onGenerateFromNotes={() => setExtractOpen(true)}
+          onContextMenu={({ clientX, clientY, block }) =>
+            setContextMenu({ kind: 'libraryBlock', x: clientX, y: clientY, blockId: block.id })
+          }
         />
         <main className="flex-1 overflow-hidden">
           <Canvas
@@ -411,7 +414,7 @@ export function Editor({
             onUpdate={updatePlacement}
             onCreatePlacement={createPlacement}
             onContextMenu={({ clientX, clientY, placementId }) =>
-              setContextMenu({ x: clientX, y: clientY, placementId })
+              setContextMenu({ kind: 'placement', x: clientX, y: clientY, placementId })
             }
           />
         </main>
@@ -468,39 +471,72 @@ export function Editor({
       />
 
       {contextMenu && (() => {
-        const placement = placements.find((p) => p.id === contextMenu.placementId);
-        const block = placement ? blocksById.get(placement.blockId) ?? null : null;
-        const items: ContextMenuEntry[] = [
-          {
-            label: 'Bring to front',
-            onClick: () => bringToFront(contextMenu.placementId),
-          },
-          {
-            label: 'Send to back',
-            onClick: () => sendToBack(contextMenu.placementId),
-          },
-          { separator: true },
-          {
-            label: 'Edit content',
-            onClick: () => {
-              if (block) {
+        let items: ContextMenuEntry[] = [];
+        if (contextMenu.kind === 'placement') {
+          const placement = placements.find((p) => p.id === contextMenu.placementId);
+          const block = placement ? blocksById.get(placement.blockId) ?? null : null;
+          items = [
+            {
+              label: 'Bring to front',
+              onClick: () => bringToFront(contextMenu.placementId),
+            },
+            {
+              label: 'Send to back',
+              onClick: () => sendToBack(contextMenu.placementId),
+            },
+            { separator: true },
+            {
+              label: 'Edit content',
+              onClick: () => {
+                if (block) {
+                  setEditingBlock(block);
+                  setModalOpen(true);
+                }
+              },
+            },
+            { separator: true },
+            {
+              label: 'Delete',
+              destructive: true,
+              onClick: () => {
+                setSelectedId(contextMenu.placementId);
+                deleteSelected();
+              },
+            },
+          ];
+        } else {
+          // libraryBlock context menu — clicked a sidebar card
+          const block = blocksById.get(contextMenu.blockId) ?? null;
+          if (!block) return null;
+          items = [
+            {
+              label: 'Edit',
+              onClick: () => {
                 setEditingBlock(block);
                 setModalOpen(true);
-              }
+              },
             },
-          },
-          { separator: true },
-          {
-            label: 'Delete',
-            destructive: true,
-            onClick: () => {
-              setSelectedId(contextMenu.placementId);
-              deleteSelected();
+            {
+              label: 'Duplicate',
+              onClick: async () => {
+                const copy = await api.createBlock({
+                  type: block.type,
+                  content: block.content,
+                  tags: block.tags,
+                });
+                setLibrary((prev) => [...prev, copy]);
+              },
             },
-          },
-        ];
+            { separator: true },
+            {
+              label: 'Delete from library',
+              destructive: true,
+              onClick: () => onDeleteBlock(block),
+            },
+          ];
+        }
         return (
-          <CanvasContextMenu
+          <ContextMenu
             x={contextMenu.x}
             y={contextMenu.y}
             items={items}

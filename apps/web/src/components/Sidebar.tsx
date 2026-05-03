@@ -17,6 +17,7 @@ interface SidebarProps {
   onEdit: (block: Block) => void;
   onDelete: (block: Block) => void;
   onGenerateFromNotes?: () => void;
+  onContextMenu: (event: { clientX: number; clientY: number; block: Block }) => void;
 }
 
 const TYPES: Array<BlockType | 'all'> = ['all', 'text', 'formula', 'table'];
@@ -28,6 +29,7 @@ export function Sidebar({
   onEdit,
   onDelete,
   onGenerateFromNotes,
+  onContextMenu,
 }: SidebarProps) {
   const [filter, setFilter] = useState<BlockType | 'all'>('all');
   const [query, setQuery] = useState('');
@@ -135,13 +137,17 @@ export function Sidebar({
                   e.dataTransfer.setData('text/cheatsheet-block-id', block.id);
                   e.dataTransfer.effectAllowed = 'copy';
                 }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  onContextMenu({ clientX: e.clientX, clientY: e.clientY, block });
+                }}
                 className={`group cursor-grab rounded border bg-white p-2 hover:border-accent ${
                   isPlaced ? 'border-accent/60 bg-accent/5' : 'border-slate-200'
                 }`}
                 title={
                   isPlaced
-                    ? `On canvas (${placedCount}× — drag again to add another)`
-                    : 'Drag onto the canvas to place'
+                    ? `On canvas (${placedCount}× — drag again to add another). Right-click for more options.`
+                    : 'Drag onto the canvas to place. Right-click for more options.'
                 }
               >
                 <div

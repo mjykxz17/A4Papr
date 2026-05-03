@@ -21,7 +21,7 @@ const notoSansSC = Noto_Sans_SC({
 });
 
 export const metadata: Metadata = {
-  title: 'CheatsheetMaker',
+  title: 'A4 Papr',
   description: 'Build print-ready exam cheatsheets on an A4 canvas.',
 };
 

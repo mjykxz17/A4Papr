@@ -6,7 +6,7 @@ export function MobileGate() {
       <div className="max-w-sm space-y-3">
         <h1 className="text-xl font-semibold">View on desktop to edit</h1>
         <p className="text-sm text-slate-600">
-          CheatsheetMaker uses drag-and-drop on a precision A4 canvas. Open this page on a desktop
+          A4 Papr uses drag-and-drop on a precision A4 canvas. Open this page on a desktop
           browser to build your cheatsheet.
         </p>
       </div>

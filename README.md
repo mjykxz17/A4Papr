@@ -1,4 +1,4 @@
-# CheatsheetMaker
+# A4 Papr
 
 A web tool for students to build print-ready exam cheatsheets by dragging asset blocks (text, formula, table) onto an A4 canvas.
 

@@ -1,6 +1,6 @@
 # Stack Decisions
 
-Locked choices for the CheatsheetMaker MVP. Each decision lists alternatives considered and why this one won.
+Locked choices for the A4 Papr MVP. Each decision lists alternatives considered and why this one won.
 
 ## Frontend framework — **Next.js 15 (App Router)**
 
