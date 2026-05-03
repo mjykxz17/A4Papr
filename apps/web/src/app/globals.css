@@ -51,6 +51,14 @@ body {
   -webkit-user-select: none;
 }
 
+/* Inner wrapper holds the content at logical (1×) size and is
+   visually scaled by the page zoom — see Canvas.tsx. */
+.canvas-block-inner {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
 .canvas-block.selected {
   outline: 2px solid theme('colors.accent.DEFAULT');
   outline-offset: 1px;

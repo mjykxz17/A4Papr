@@ -151,7 +151,22 @@ export function Canvas({
                   onSelect(p.id);
                 }}
               >
-                <BlockView content={block.content} />
+                {/* Inner content rendered at the un-zoomed (1×) logical
+                    size and visually scaled by `zoom` so absolute-unit
+                    fonts (pt), KaTeX SVGs, and tables all scale together.
+                    The outer container's pixel size already includes the
+                    zoom factor, so Moveable still hits a correct rect. */}
+                <div
+                  className="canvas-block-inner"
+                  style={{
+                    width: p.width * MM_TO_PX,
+                    height: p.height * MM_TO_PX,
+                    transform: zoom === 1 ? undefined : `scale(${zoom})`,
+                    transformOrigin: 'top left',
+                  }}
+                >
+                  <BlockView content={block.content} />
+                </div>
               </div>
             );
           })}
