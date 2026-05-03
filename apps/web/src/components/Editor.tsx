@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   defaultPlacementSize,
+  layoutPlacements,
   type Block,
   type BlockContent,
   type BlockPlacement,
@@ -397,7 +398,7 @@ export function Editor({
             setModalOpen(true);
           }}
           onDelete={onDeleteBlock}
-          onGenerateFromNotes={aiEnabled ? () => setExtractOpen(true) : undefined}
+          onGenerateFromNotes={() => setExtractOpen(true)}
         />
         <main className="flex-1 overflow-hidden">
           <Canvas
@@ -433,8 +434,36 @@ export function Editor({
 
       <ExtractModal
         open={extractOpen}
+        aiAvailable={aiEnabled}
         onClose={() => setExtractOpen(false)}
-        onAdded={(added) => setLibrary((prev) => [...prev, ...added])}
+        onAdded={(added, opts) => {
+          setLibrary((prev) => [...prev, ...added]);
+          if (!opts.placeOnCanvas || added.length === 0) return;
+          // Bin-pack the new blocks into the A4 page below anything
+          // already there, then queue each as a placement upsert so
+          // auto-save persists them on the next debounce tick.
+          const boxes = layoutPlacements(
+            added.map((b) => ({ type: b.type })),
+            placements,
+          );
+          const baseZ = (placements.at(-1)?.zIndex ?? 0) + 1;
+          const newPlacements: BlockPlacement[] = added.map((block, i) => {
+            const box = boxes[i]!;
+            return {
+              id: crypto.randomUUID(),
+              cheatsheetId: cheatsheet.id,
+              blockId: block.id,
+              x: box.x,
+              y: box.y,
+              width: box.width,
+              height: box.height,
+              rotation: 0,
+              zIndex: baseZ + i,
+            };
+          });
+          undo.set((prev) => [...prev, ...newPlacements]);
+          for (const p of newPlacements) queueUpsert(p);
+        }}
       />
 
       {contextMenu && (() => {

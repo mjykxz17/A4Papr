@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { A4 } from './units.js';
+import { A4, clamp } from './units.js';
 
 /* ------------------------------------------------------------------ *
  * Block content schemas — one per `type`.
@@ -160,6 +160,67 @@ export function defaultPlacementSize(type: BlockType): { width: number; height: 
     case 'table':
       return { width: 80, height: 40 };
   }
+}
+
+interface LayoutInput {
+  type: BlockType;
+  width?: number;
+  height?: number;
+}
+
+interface LayoutBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Pack a list of blocks into the A4 printable area using a left-to-right,
+ * top-to-bottom shelf algorithm. Optionally avoids overlapping a set of
+ * existing rectangles (e.g. placements already on the canvas) — new
+ * blocks are placed below the lowest existing one.
+ *
+ * Returns the same number of boxes as inputs; if a block doesn't fit on
+ * the page, it's still positioned (clamped to the page) so the caller
+ * can decide what to do.
+ */
+export function layoutPlacements(
+  blocks: LayoutInput[],
+  existing: Array<{ x: number; y: number; width: number; height: number }> = [],
+  options: { gapMm?: number } = {},
+): LayoutBox[] {
+  const gap = options.gapMm ?? 2;
+  const left: number = A4.marginMm;
+  const right: number = A4.widthMm - A4.marginMm;
+  const bottom: number = A4.heightMm - A4.marginMm;
+  const startY = existing.reduce<number>(
+    (max, p) => Math.max(max, p.y + p.height + gap),
+    A4.marginMm,
+  );
+
+  const out: LayoutBox[] = [];
+  let cursorX = left;
+  let cursorY = startY;
+  let rowHeight = 0;
+
+  for (const b of blocks) {
+    const size = defaultPlacementSize(b.type);
+    const w = clamp(b.width ?? size.width, 5, right - left);
+    const h = clamp(b.height ?? size.height, 5, bottom - A4.marginMm);
+
+    if (cursorX + w > right && cursorX > left) {
+      cursorX = left;
+      cursorY += rowHeight + gap;
+      rowHeight = 0;
+    }
+    const x = clamp(cursorX, left, right - w);
+    const y = clamp(cursorY, A4.marginMm, bottom - h);
+    out.push({ x, y, width: w, height: h });
+    cursorX = x + w + gap;
+    rowHeight = Math.max(rowHeight, h);
+  }
+  return out;
 }
 
 export const PAGE = A4;
