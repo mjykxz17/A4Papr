@@ -8,6 +8,7 @@ import {
   type CreateBlockInput,
 } from '@cheatsheet/shared';
 import { api } from '@/lib/api-client';
+import { parseMarkdownBlocks } from '@/lib/markdown-import';
 import { BlockView } from './blocks/BlockView';
 
 /**
@@ -48,44 +49,35 @@ interface Props {
   onAdded: (added: Block[], opts: { placeOnCanvas: boolean }) => void;
 }
 
-const PROMPT_TEMPLATE = `You are converting lecture notes into cheatsheet blocks for a print-ready A4 sheet. Output ONLY a JSON code block (no other text) matching this schema:
+const PROMPT_TEMPLATE = `Convert these lecture notes into cheatsheet blocks for a print-ready A4 sheet. Output is plain markdown — one section per block, separated by \`## Heading\`. Format:
 
-\`\`\`json
-{
-  "blocks": [
-    {
-      "type": "text",
-      "markdown": "<short markdown — bold/italic/code/bullets only, max 200 chars>",
-      "fontSize": "sm",
-      "align": "left",
-      "tags": ["topic", "subtopic"],
-      "rationale": "<one short sentence on why this is exam-worthy>"
-    },
-    {
-      "type": "formula",
-      "latex": "<KaTeX-compatible LaTeX, no \\\\begin{align}, no custom macros>",
-      "displayMode": true,
-      "tags": ["topic"],
-      "rationale": "..."
-    },
-    {
-      "type": "table",
-      "headers": ["..."],
-      "rows": [["..."]],
-      "compact": true,
-      "headerStyle": "bold",
-      "tags": ["..."],
-      "rationale": "..."
-    }
-  ]
-}
+\`\`\`markdown
+## Bayes' theorem
+[tags: probability, bayes]
+
+**Bayes' theorem** updates a prior P(A) given evidence B.
+
+## Bayes equation
+[tags: probability]
+
+$$P(A|B) = \\frac{P(B|A)\\,P(A)}{P(B)}$$
+
+## Vocabulary
+[tags: probability, vocab]
+
+| 术语 | Symbol | Meaning |
+| --- | --- | --- |
+| 先验 | P(A) | prior |
+| 似然 | P(B\\|A) | likelihood |
 \`\`\`
 
 Rules:
 - 6–14 blocks total. ONE concept per block. Skip filler ("important", "remember that", page numbers, slide titles).
-- Tables: 2–6 columns, max 15 rows.
+- Block type is auto-detected from content: \`$$...$$\` or \`\`\`latex\`\`\` fence → formula; markdown table → table; otherwise → text.
+- Tags line is optional but recommended (\`[tags: a, b, c]\` right after the heading).
+- Tables: 2–6 columns, max 15 rows. Escape pipes inside cells as \`\\|\`.
+- LaTeX must be valid KaTeX (no \\begin{align}, no custom macros).
 - Preserve bilingual content verbatim (e.g. Chinese + English).
-- Tag every block with 2–4 short topic tags.
 
 Lecture notes:
 [PASTE YOUR NOTES HERE]`;
@@ -183,25 +175,26 @@ export function ExtractModal({ open, aiAvailable, onClose, onAdded }: Props) {
     }
   };
 
-  const importJson = () => {
+  const importFromText = () => {
     setError(null);
     setSource('imported');
     setUsage(null);
-    const parsed = extractJsonBlock(text);
-    if (!parsed || !isExtractionPayload(parsed)) {
+    // Try JSON first (more structured), fall back to markdown.
+    const json = extractJsonBlock(text);
+    let result: { blocks: ProposedBlock[] } | null = null;
+    if (json && isExtractionPayload(json)) {
+      result = json;
+    } else {
+      result = parseMarkdownBlocks(text) as { blocks: ProposedBlock[] } | null;
+    }
+    if (!result || result.blocks.length === 0) {
       setError(
-        'Couldn’t find a valid blocks JSON. Paste the entire JSON code block your chatbot returned, or use the prompt template above.',
+        'Couldn’t parse blocks from this text. Paste either a JSON ```json``` code block or markdown with `## Heading` sections.',
       );
       return;
     }
-    if (parsed.blocks.length === 0) {
-      setError('JSON contained no blocks.');
-      return;
-    }
-    // Light sanity-check; the server's zod schema would reject malformed
-    // content at /api/blocks anyway.
-    setProposed(parsed.blocks);
-    setSelected(new Set(parsed.blocks.map((_, i) => i)));
+    setProposed(result.blocks);
+    setSelected(new Set(result.blocks.map((_, i) => i)));
     setPhase('review');
   };
 
@@ -294,8 +287,9 @@ export function ExtractModal({ open, aiAvailable, onClose, onAdded }: Props) {
                   <p>
                     Copy the prompt below into ChatGPT, Claude.ai, Gemini, or any other
                     chatbot, replace the bracketed placeholder with your notes, then paste
-                    the chatbot’s entire JSON output back into the textarea here and press{' '}
-                    <strong>Import JSON</strong>.
+                    the chatbot’s output back into the textarea here and press{' '}
+                    <strong>Import</strong>. Both markdown (with <code>## Heading</code>{' '}
+                    sections) and JSON code blocks are accepted.
                   </p>
                   <div className="relative">
                     <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded border border-slate-200 bg-white p-2 font-mono text-[11px] leading-relaxed text-slate-700">
@@ -316,7 +310,7 @@ export function ExtractModal({ open, aiAvailable, onClose, onAdded }: Props) {
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder="Paste lecture notes (raw text), or the JSON your chatbot produced from the prompt above."
+              placeholder="Paste lecture notes (raw text), or the markdown / JSON your chatbot produced from the prompt above."
               className="flex-1 resize-none rounded border border-slate-300 px-3 py-2 font-mono text-sm focus:border-accent focus:outline-none"
             />
             <div className="flex items-center justify-between text-xs text-slate-500">
@@ -332,12 +326,12 @@ export function ExtractModal({ open, aiAvailable, onClose, onAdded }: Props) {
                 Cancel
               </button>
               <button
-                onClick={importJson}
+                onClick={importFromText}
                 disabled={busy || text.trim().length < 20}
                 className="rounded border border-accent bg-white px-3 py-1.5 text-sm font-medium text-accent-dark hover:bg-accent/5"
-                title="Parse a JSON code block produced by your own chatbot"
+                title="Parse markdown (## Heading sections) or a JSON code block from your chatbot"
               >
-                Import JSON
+                Import
               </button>
               {aiAvailable && (
                 <button
