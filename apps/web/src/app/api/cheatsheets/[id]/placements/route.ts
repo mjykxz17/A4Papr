@@ -60,26 +60,14 @@ export async function POST(req: Request, { params }: Ctx) {
         );
     }
     for (const u of upserts) {
-      if (u.id) {
-        await tx
-          .update(blockPlacements)
-          .set({
-            blockId: u.blockId,
-            x: u.x,
-            y: u.y,
-            width: u.width,
-            height: u.height,
-            rotation: u.rotation,
-            zIndex: u.zIndex,
-          })
-          .where(
-            and(
-              eq(blockPlacements.id, u.id),
-              eq(blockPlacements.cheatsheetId, cheatsheetId),
-            ),
-          );
-      } else {
-        await tx.insert(blockPlacements).values({
+      // Client mints UUIDs and always sends one. Use a real upsert
+      // (insert-on-conflict-do-update) so a placement created on the
+      // client and then dragged auto-reconciles to a single row.
+      if (!u.id) continue;
+      await tx
+        .insert(blockPlacements)
+        .values({
+          id: u.id,
           cheatsheetId,
           blockId: u.blockId,
           x: u.x,
@@ -88,8 +76,19 @@ export async function POST(req: Request, { params }: Ctx) {
           height: u.height,
           rotation: u.rotation,
           zIndex: u.zIndex,
+        })
+        .onConflictDoUpdate({
+          target: blockPlacements.id,
+          set: {
+            blockId: u.blockId,
+            x: u.x,
+            y: u.y,
+            width: u.width,
+            height: u.height,
+            rotation: u.rotation,
+            zIndex: u.zIndex,
+          },
         });
-      }
     }
     await tx
       .update(cheatsheets)

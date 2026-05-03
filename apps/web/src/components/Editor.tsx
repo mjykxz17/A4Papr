@@ -27,11 +27,9 @@ interface EditorProps {
 }
 
 interface PendingPatch {
-  upserts: Map<string, BlockPlacement>; // key: placement.id (or local "new:N")
+  upserts: Map<string, BlockPlacement>; // key: placement.id (real UUID)
   deletes: Set<string>;
 }
-
-const NEW_PREFIX = 'new:';
 
 function newPendingPatch(): PendingPatch {
   return { upserts: new Map(), deletes: new Set() };
@@ -66,12 +64,8 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary }: Editor
     setSaveStatus('dirty');
   }, []);
   const queueDelete = useCallback((id: string) => {
-    if (id.startsWith(NEW_PREFIX)) {
-      pendingRef.current.upserts.delete(id);
-    } else {
-      pendingRef.current.upserts.delete(id);
-      pendingRef.current.deletes.add(id);
-    }
+    pendingRef.current.upserts.delete(id);
+    pendingRef.current.deletes.add(id);
     setSaveStatus('dirty');
   }, []);
 
@@ -92,9 +86,9 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary }: Editor
       const block = blocksById.get(blockId);
       if (!block) return;
       const size = defaultPlacementSize(block.type);
-      const tempId = `${NEW_PREFIX}${crypto.randomUUID()}`;
+      const id = crypto.randomUUID();
       const placement: BlockPlacement = {
-        id: tempId,
+        id,
         cheatsheetId: cheatsheet.id,
         blockId,
         x: xMm,
@@ -106,7 +100,7 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary }: Editor
       };
       undo.set((prev) => [...prev, placement]);
       queueUpsert(placement);
-      setSelectedId(tempId);
+      setSelectedId(id);
     },
     [blocksById, cheatsheet.id, placements, undo, queueUpsert],
   );
@@ -115,17 +109,17 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary }: Editor
     if (!selectedId) return;
     const src = placements.find((p) => p.id === selectedId);
     if (!src) return;
-    const tempId = `${NEW_PREFIX}${crypto.randomUUID()}`;
+    const id = crypto.randomUUID();
     const copy: BlockPlacement = {
       ...src,
-      id: tempId,
+      id,
       x: src.x + 5,
       y: src.y + 5,
       zIndex: (placements.at(-1)?.zIndex ?? 0) + 1,
     };
     undo.set((prev) => [...prev, copy]);
     queueUpsert(copy);
-    setSelectedId(tempId);
+    setSelectedId(id);
   }, [selectedId, placements, undo, queueUpsert]);
 
   const deleteSelected = useCallback(() => {
@@ -148,7 +142,7 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary }: Editor
 
     const patch: PlacementPatch = {
       upserts: [...pending.upserts.values()].map((p) => ({
-        id: p.id.startsWith(NEW_PREFIX) ? undefined : p.id,
+        id: p.id,
         blockId: p.blockId,
         x: p.x,
         y: p.y,
@@ -157,7 +151,7 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary }: Editor
         rotation: p.rotation,
         zIndex: p.zIndex,
       })),
-      deletes: [...pending.deletes].filter((id) => !id.startsWith(NEW_PREFIX)),
+      deletes: [...pending.deletes],
     };
 
     try {
@@ -185,7 +179,7 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary }: Editor
       if (p.upserts.size > 0 || p.deletes.size > 0) {
         const patch = JSON.stringify({
           upserts: [...p.upserts.values()].map((pp) => ({
-            id: pp.id.startsWith(NEW_PREFIX) ? undefined : pp.id,
+            id: pp.id,
             blockId: pp.blockId,
             x: pp.x,
             y: pp.y,
@@ -194,7 +188,7 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary }: Editor
             rotation: pp.rotation,
             zIndex: pp.zIndex,
           })),
-          deletes: [...p.deletes].filter((id) => !id.startsWith(NEW_PREFIX)),
+          deletes: [...p.deletes],
         });
         navigator.sendBeacon(
           `/api/cheatsheets/${cheatsheet.id}/placements`,

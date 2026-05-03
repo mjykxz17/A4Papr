@@ -111,7 +111,7 @@ export const CreateCheatsheetInput = z.object({
 export type CreateCheatsheetInput = z.infer<typeof CreateCheatsheetInput>;
 
 export const UpsertPlacementInput = z.object({
-  id: uuid.optional(),
+  id: uuid,
   blockId: uuid,
   x: mm,
   y: mm,
