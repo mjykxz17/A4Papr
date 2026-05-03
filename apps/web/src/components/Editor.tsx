@@ -13,6 +13,7 @@ import {
 import { api } from '@/lib/api-client';
 import { useDebouncedCallback, useIsMobile, useUndoStack } from '@/lib/hooks';
 import { BlockEditorModal } from './BlockEditorModal';
+import { CalibrationModal, readCalibration } from './CalibrationModal';
 import { Canvas } from './Canvas';
 import { MobileGate } from './MobileGate';
 import { Sidebar } from './Sidebar';
@@ -46,8 +47,13 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary }: Editor
   const [title, setTitle] = useState(cheatsheet.title);
   const [editingBlock, setEditingBlock] = useState<Block | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [calibrationOpen, setCalibrationOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
+
+  const onActualSize = useCallback(() => {
+    setZoom(readCalibration());
+  }, []);
 
   const pendingRef = useRef<PendingPatch>(newPendingPatch());
 
@@ -328,6 +334,8 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary }: Editor
         onTitleChange={onTitleChange}
         zoom={zoom}
         onZoomChange={setZoom}
+        onActualSize={onActualSize}
+        onCalibrate={() => setCalibrationOpen(true)}
         onUndo={undo.undo}
         onRedo={undo.redo}
         canUndo={undo.canUndo}
@@ -370,6 +378,12 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary }: Editor
           setEditingBlock(null);
         }}
         onSave={onSaveBlock}
+      />
+
+      <CalibrationModal
+        open={calibrationOpen}
+        onClose={() => setCalibrationOpen(false)}
+        onSaved={(factor) => setZoom(factor)}
       />
     </div>
   );

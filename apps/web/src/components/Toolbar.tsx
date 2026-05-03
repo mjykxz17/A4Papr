@@ -5,6 +5,8 @@ interface ToolbarProps {
   onTitleChange: (title: string) => void;
   zoom: number;
   onZoomChange: (zoom: number) => void;
+  onActualSize: () => void;
+  onCalibrate: () => void;
   onUndo: () => void;
   onRedo: () => void;
   canUndo: boolean;
@@ -19,6 +21,8 @@ export function Toolbar({
   onTitleChange,
   zoom,
   onZoomChange,
+  onActualSize,
+  onCalibrate,
   onUndo,
   onRedo,
   canUndo,
@@ -58,6 +62,7 @@ export function Toolbar({
           <button
             onClick={() => onZoomChange(Math.max(0.25, zoom - 0.1))}
             className="px-2 py-1 text-xs hover:bg-slate-50"
+            title="Zoom out (⌘−)"
           >
             −
           </button>
@@ -65,16 +70,33 @@ export function Toolbar({
           <button
             onClick={() => onZoomChange(Math.min(4, zoom + 0.1))}
             className="px-2 py-1 text-xs hover:bg-slate-50"
+            title="Zoom in (⌘+)"
           >
             +
           </button>
           <button
             onClick={() => onZoomChange(1)}
             className="border-l border-slate-300 px-2 py-1 text-xs hover:bg-slate-50"
+            title="Reset to 100% (⌘0)"
           >
-            reset
+            100%
           </button>
         </div>
+        <button
+          onClick={onActualSize}
+          className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50"
+          title="Render at physical A4 size — preview how it will print"
+        >
+          Actual size
+        </button>
+        <button
+          onClick={onCalibrate}
+          className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50"
+          title="Calibrate &quot;Actual size&quot; to your monitor"
+          aria-label="Calibrate actual size"
+        >
+          ⚙
+        </button>
         <button
           onClick={onExport}
           disabled={exporting}
