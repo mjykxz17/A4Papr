@@ -14,6 +14,7 @@ interface CanvasProps {
   onSelect: (id: string | null) => void;
   onUpdate: (id: string, patch: Partial<BlockPlacement>) => void;
   onCreatePlacement: (blockId: string, xMm: number, yMm: number) => void;
+  onEditBlock?: (block: Block) => void;
   onContextMenu?: (event: { clientX: number; clientY: number; placementId: string }) => void;
 }
 
@@ -36,6 +37,7 @@ export function Canvas({
   onSelect,
   onUpdate,
   onCreatePlacement,
+  onEditBlock,
   onContextMenu,
 }: CanvasProps) {
   const pageRef = useRef<HTMLDivElement>(null);
@@ -234,6 +236,11 @@ export function Canvas({
                   e.stopPropagation();
                   onSelect(p.id);
                 }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  onEditBlock?.(block);
+                }}
+                title="Double-click to edit"
               >
                 {/* Inner content rendered at the un-zoomed (1×) logical
                     size and visually scaled by `zoom` so absolute-unit

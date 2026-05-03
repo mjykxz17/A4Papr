@@ -416,6 +416,10 @@ export function Editor({
             onContextMenu={({ clientX, clientY, placementId }) =>
               setContextMenu({ kind: 'placement', x: clientX, y: clientY, placementId })
             }
+            onEditBlock={(block) => {
+              setEditingBlock(block);
+              setModalOpen(true);
+            }}
           />
         </main>
       </div>
