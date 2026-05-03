@@ -46,8 +46,9 @@ function verify(value: string): string | null {
 }
 
 /**
- * Read the device_id from the cookie, minting a new one if absent or invalid.
- * Use from server components and route handlers.
+ * Read the device_id from the cookie. Middleware (`src/middleware.ts`)
+ * mints the cookie on first request so server components only need to
+ * read it. Route handlers can still mint via `mintDeviceIdInJar`.
  */
 export async function getOrCreateDeviceId(): Promise<string> {
   const jar = await cookies();
@@ -56,6 +57,16 @@ export async function getOrCreateDeviceId(): Promise<string> {
     const verified = verify(raw);
     if (verified) return verified;
   }
+  // Cookie should have been minted by middleware. If we get here it
+  // means middleware was bypassed — mint defensively (works in route
+  // handlers; throws in server components, which is fine because that
+  // path indicates a config bug).
+  return mintDeviceIdInJar(jar);
+}
+
+function mintDeviceIdInJar(
+  jar: Awaited<ReturnType<typeof cookies>>,
+): string {
   const id = randomUUID();
   jar.set(DEVICE_COOKIE, sign(id), {
     httpOnly: true,
