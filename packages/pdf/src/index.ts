@@ -62,18 +62,17 @@ export async function renderCheatsheetPdf(opts: RenderOptions): Promise<Uint8Arr
       timeout: opts.networkIdleTimeoutMs ?? 30_000,
     });
 
-    // KaTeX SVGs render synchronously on first paint, but give the
-    // browser one frame to settle layout for very large tables.
-    await page.evaluate(
-      () =>
-        new Promise<void>((r) => {
-          // Browser-only API; this body runs inside the page context.
-          const raf = (globalThis as unknown as {
-            requestAnimationFrame: (cb: () => void) => void;
-          }).requestAnimationFrame;
-          raf(() => r());
-        }),
-    );
+    // Wait for webfonts (Google Fonts @import is async — networkidle0
+    // can fire before the woff2 files finish downloading, which causes
+    // CJK glyphs to render as missing/tofu in the resulting PDF).
+    await page.evaluate(async () => {
+      const doc = globalThis as unknown as {
+        document: { fonts: { ready: Promise<void> } };
+        requestAnimationFrame: (cb: () => void) => void;
+      };
+      await doc.document.fonts.ready;
+      await new Promise<void>((r) => doc.requestAnimationFrame(() => r()));
+    });
 
     const buffer = await page.pdf({
       format: 'A4',

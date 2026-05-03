@@ -48,6 +48,7 @@ export default async function PrintPage({ params, searchParams }: PageProps) {
 
   return (
     <div
+      className="print-root"
       style={{
         width: `${A4.widthMm}mm`,
         height: `${A4.heightMm}mm`,

@@ -1,39 +1,50 @@
+/* Noto Sans + Noto Sans SC come from `next/font/google` in the root
+   layout — they're bundled into the build, served from /_next/static/,
+   and exposed via CSS variables `--font-noto-sans` and
+   `--font-noto-sans-sc`. No network round-trip at render time. */
 @page {
   size: A4 portrait;
   margin: 0;
 }
 
-html,
-body {
-  margin: 0;
-  padding: 0;
-  background: white;
+/* When the print-root marker is present, force a clean white canvas.
+   Uses :has() to scope the override only to the print route, without
+   needing a separate root layout. */
+html:has(.print-root),
+body:has(.print-root) {
+  margin: 0 !important;
+  padding: 0 !important;
+  background: white !important;
+  color: #0f172a;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
   font-family:
-    Inter,
-    'Noto Sans CJK SC',
+    var(--font-noto-sans),
+    var(--font-noto-sans-sc),
     ui-sans-serif,
     system-ui,
     -apple-system,
     sans-serif;
 }
 
-p {
+/* Inside a print render, .canvas-block-inner doesn't exist — the print
+   route renders BlockView directly. Make sure inline elements behave
+   the same as the editor preview. */
+.print-root p {
   margin: 0 0 0.4em 0;
 }
 
-ul {
+.print-root ul {
   margin: 0 0 0.4em 0;
   padding-left: 1em;
 }
 
-table {
+.print-root table {
   border-collapse: collapse;
   width: 100%;
 }
 
-td,
-th {
+.print-root td,
+.print-root th {
   vertical-align: top;
 }

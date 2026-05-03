@@ -14,11 +14,11 @@ export default {
       },
       fontFamily: {
         sans: [
-          'Inter',
+          'var(--font-noto-sans)',
+          'var(--font-noto-sans-sc)',
           'ui-sans-serif',
           'system-ui',
           '-apple-system',
-          'Noto Sans CJK SC',
           'sans-serif',
         ],
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
