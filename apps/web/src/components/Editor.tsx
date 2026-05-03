@@ -15,6 +15,7 @@ import { useDebouncedCallback, useIsMobile, useUndoStack } from '@/lib/hooks';
 import { BlockEditorModal } from './BlockEditorModal';
 import { CalibrationModal, readCalibration } from './CalibrationModal';
 import { Canvas } from './Canvas';
+import { CanvasContextMenu, type ContextMenuEntry } from './CanvasContextMenu';
 import { MobileGate } from './MobileGate';
 import { Sidebar } from './Sidebar';
 import { Toolbar } from './Toolbar';
@@ -50,6 +51,11 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary }: Editor
   const [calibrationOpen, setCalibrationOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    placementId: string;
+  } | null>(null);
 
   const onActualSize = useCallback(() => {
     setZoom(readCalibration());
@@ -134,6 +140,33 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary }: Editor
     queueDelete(selectedId);
     setSelectedId(null);
   }, [selectedId, undo, queueDelete]);
+
+  const bringToFront = useCallback(
+    (id: string) => {
+      const maxZ = placements.reduce((m, p) => Math.max(m, p.zIndex), 0);
+      const target = placements.find((p) => p.id === id);
+      if (!target || target.zIndex === maxZ) return;
+      const next: BlockPlacement = { ...target, zIndex: maxZ + 1 };
+      undo.set((prev) => prev.map((p) => (p.id === id ? next : p)));
+      queueUpsert(next);
+    },
+    [placements, undo, queueUpsert],
+  );
+
+  const sendToBack = useCallback(
+    (id: string) => {
+      const minZ = placements.reduce((m, p) => Math.min(m, p.zIndex), Infinity);
+      const target = placements.find((p) => p.id === id);
+      if (!target || target.zIndex === minZ) return;
+      const next: BlockPlacement = {
+        ...target,
+        zIndex: Math.max(0, minZ - 1),
+      };
+      undo.set((prev) => prev.map((p) => (p.id === id ? next : p)));
+      queueUpsert(next);
+    },
+    [placements, undo, queueUpsert],
+  );
 
   /* ---------------------- auto-save ---------------------- */
 
@@ -366,6 +399,9 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary }: Editor
             onSelect={setSelectedId}
             onUpdate={updatePlacement}
             onCreatePlacement={createPlacement}
+            onContextMenu={({ clientX, clientY, placementId }) =>
+              setContextMenu({ x: clientX, y: clientY, placementId })
+            }
           />
         </main>
       </div>
@@ -385,6 +421,48 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary }: Editor
         onClose={() => setCalibrationOpen(false)}
         onSaved={(factor) => setZoom(factor)}
       />
+
+      {contextMenu && (() => {
+        const placement = placements.find((p) => p.id === contextMenu.placementId);
+        const block = placement ? blocksById.get(placement.blockId) ?? null : null;
+        const items: ContextMenuEntry[] = [
+          {
+            label: 'Bring to front',
+            onClick: () => bringToFront(contextMenu.placementId),
+          },
+          {
+            label: 'Send to back',
+            onClick: () => sendToBack(contextMenu.placementId),
+          },
+          { separator: true },
+          {
+            label: 'Edit content',
+            onClick: () => {
+              if (block) {
+                setEditingBlock(block);
+                setModalOpen(true);
+              }
+            },
+          },
+          { separator: true },
+          {
+            label: 'Delete',
+            destructive: true,
+            onClick: () => {
+              setSelectedId(contextMenu.placementId);
+              deleteSelected();
+            },
+          },
+        ];
+        return (
+          <CanvasContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            items={items}
+            onClose={() => setContextMenu(null)}
+          />
+        );
+      })()}
     </div>
   );
 }

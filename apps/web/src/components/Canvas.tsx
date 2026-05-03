@@ -14,6 +14,7 @@ interface CanvasProps {
   onSelect: (id: string | null) => void;
   onUpdate: (id: string, patch: Partial<BlockPlacement>) => void;
   onCreatePlacement: (blockId: string, xMm: number, yMm: number) => void;
+  onContextMenu?: (event: { clientX: number; clientY: number; placementId: string }) => void;
 }
 
 const PAGE_WIDTH_PX_AT_100 = A4.widthMm * MM_TO_PX; // ≈ 793.7
@@ -35,11 +36,21 @@ export function Canvas({
   onSelect,
   onUpdate,
   onCreatePlacement,
+  onContextMenu,
 }: CanvasProps) {
   const pageRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const blockRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [moveableTarget, setMoveableTarget] = useState<HTMLElement | null>(null);
   const [snapVersion, setSnapVersion] = useState(0);
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const panStateRef = useRef<{
+    active: boolean;
+    startX: number;
+    startY: number;
+    scrollLeft: number;
+    scrollTop: number;
+  }>({ active: false, startX: 0, startY: 0, scrollLeft: 0, scrollTop: 0 });
 
   // Resolve the selected target ref to an HTMLElement for Moveable.
   useEffect(() => {
@@ -82,12 +93,78 @@ export function Canvas({
 
   const onBgMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      // Skip deselect while panning so a space-drag doesn't drop the
+      // selection; Moveable also won't intercept since pan mode is
+      // active (handled below).
+      if (spaceHeld || panStateRef.current.active) return;
       if (e.target === e.currentTarget || e.target === pageRef.current) {
         onSelect(null);
       }
     },
-    [onSelect],
+    [onSelect, spaceHeld],
   );
+
+  /* ---------- pan: space + drag ---------- */
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || e.repeat) return;
+      const t = e.target as HTMLElement | null;
+      // Don't intercept the spacebar inside form fields.
+      if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+      e.preventDefault();
+      setSpaceHeld(true);
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code !== 'Space') return;
+      setSpaceHeld(false);
+      panStateRef.current.active = false;
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, []);
+
+  const onPanMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!spaceHeld || !wrapperRef.current) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const wrap = wrapperRef.current;
+      panStateRef.current = {
+        active: true,
+        startX: e.clientX,
+        startY: e.clientY,
+        scrollLeft: wrap.scrollLeft,
+        scrollTop: wrap.scrollTop,
+      };
+    },
+    [spaceHeld],
+  );
+
+  // Pan move/up listeners attach to window so dragging off the wrapper
+  // doesn't drop the gesture.
+  useEffect(() => {
+    if (!spaceHeld) return;
+    const onMove = (e: MouseEvent) => {
+      const st = panStateRef.current;
+      if (!st.active || !wrapperRef.current) return;
+      wrapperRef.current.scrollLeft = st.scrollLeft - (e.clientX - st.startX);
+      wrapperRef.current.scrollTop = st.scrollTop - (e.clientY - st.startY);
+    };
+    const onUp = () => {
+      panStateRef.current.active = false;
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [spaceHeld]);
 
   // Snap alignment targets: every other block. snapVersion bumps when
   // a placement settles so Moveable re-reads positions.
@@ -106,7 +183,10 @@ export function Canvas({
 
   return (
     <div
+      ref={wrapperRef}
       className="relative h-full w-full overflow-auto bg-slate-200"
+      style={{ cursor: spaceHeld ? (panStateRef.current.active ? 'grabbing' : 'grab') : undefined }}
+      onMouseDownCapture={onPanMouseDown}
       onMouseDown={onBgMouseDown}
     >
       <div className="flex min-h-full min-w-full items-start justify-center p-12">
@@ -135,7 +215,11 @@ export function Canvas({
                 className={`canvas-block ${selectedId === p.id ? 'selected' : ''}`}
                 draggable={false}
                 onDragStart={(e) => e.preventDefault()}
-                onContextMenu={(e) => e.preventDefault()}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  onSelect(p.id);
+                  onContextMenu?.({ clientX: e.clientX, clientY: e.clientY, placementId: p.id });
+                }}
                 style={{
                   width: p.width * pxPerMm,
                   height: p.height * pxPerMm,
