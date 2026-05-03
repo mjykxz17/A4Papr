@@ -1,0 +1,26 @@
+{
+  "name": "@cheatsheet/pdf",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@cheatsheet/shared": "workspace:*",
+    "puppeteer": "^23.11.1"
+  },
+  "devDependencies": {
+    "pdf-parse": "^1.1.1",
+    "@types/pdf-parse": "^1.1.4",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

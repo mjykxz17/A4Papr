@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+.next/
+.turbo/
+.output/
+out/
+*.tsbuildinfo
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Test artifacts
+coverage/
+playwright-report/
+test-results/
+.playwright/
+
+# PDF worker scratch
+apps/worker/tmp/
+apps/worker/output/
+
+# Drizzle
+drizzle/.snapshot/
