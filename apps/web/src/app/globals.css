@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import 'katex/dist/katex.min.css';
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  height: 100%;
+  background: #f1f5f9;
+  color: #0f172a;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The A4 page on screen. Width/height set via CSS variables driven by zoom. */
+.a4-page {
+  background: white;
+  box-shadow: 0 4px 24px rgba(15, 23, 42, 0.08);
+  position: relative;
+  overflow: hidden;
+}
+
+.a4-margin-guide {
+  position: absolute;
+  inset: var(--margin-px);
+  border: 1px dashed rgb(148 163 184 / 0.55);
+  pointer-events: none;
+}
+
+.canvas-block {
+  position: absolute;
+  background: white;
+  border: 1px solid transparent;
+  box-sizing: border-box;
+  user-select: none;
+}
+
+.canvas-block.selected {
+  outline: 2px solid theme('colors.accent.DEFAULT');
+  outline-offset: 1px;
+}
+
+.canvas-block .katex-display {
+  margin: 0;
+}
+
+/* Print stylesheet — hides editor chrome, locks the page to A4. */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+  body {
+    background: white;
+  }
+  .editor-chrome {
+    display: none !important;
+  }
+  .a4-page {
+    box-shadow: none;
+  }
+}

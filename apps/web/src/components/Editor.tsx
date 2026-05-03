@@ -1,0 +1,382 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  defaultPlacementSize,
+  type Block,
+  type BlockContent,
+  type BlockPlacement,
+  type BlockType,
+  type Cheatsheet,
+  type PlacementPatch,
+} from '@cheatsheet/shared';
+import { api } from '@/lib/api-client';
+import { useDebouncedCallback, useIsMobile, useUndoStack } from '@/lib/hooks';
+import { BlockEditorModal } from './BlockEditorModal';
+import { Canvas } from './Canvas';
+import { MobileGate } from './MobileGate';
+import { Sidebar } from './Sidebar';
+import { Toolbar } from './Toolbar';
+
+type SaveStatus = 'saved' | 'saving' | 'dirty' | 'error';
+
+interface EditorProps {
+  cheatsheet: Cheatsheet;
+  initialPlacements: BlockPlacement[];
+  initialLibrary: Block[];
+}
+
+interface PendingPatch {
+  upserts: Map<string, BlockPlacement>; // key: placement.id (or local "new:N")
+  deletes: Set<string>;
+}
+
+const NEW_PREFIX = 'new:';
+
+function newPendingPatch(): PendingPatch {
+  return { upserts: new Map(), deletes: new Set() };
+}
+
+export function Editor({ cheatsheet, initialPlacements, initialLibrary }: EditorProps) {
+  const isMobile = useIsMobile();
+
+  const [library, setLibrary] = useState<Block[]>(initialLibrary);
+  const undo = useUndoStack<BlockPlacement[]>({ initial: initialPlacements });
+  const placements = undo.state;
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [title, setTitle] = useState(cheatsheet.title);
+  const [editingBlock, setEditingBlock] = useState<Block | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
+
+  const pendingRef = useRef<PendingPatch>(newPendingPatch());
+
+  const blocksById = useMemo(() => {
+    const m = new Map<string, Block>();
+    for (const b of library) m.set(b.id, b);
+    return m;
+  }, [library]);
+
+  /* ---------------------- placement mutations ---------------------- */
+
+  const queueUpsert = useCallback((p: BlockPlacement) => {
+    pendingRef.current.upserts.set(p.id, p);
+    setSaveStatus('dirty');
+  }, []);
+  const queueDelete = useCallback((id: string) => {
+    if (id.startsWith(NEW_PREFIX)) {
+      pendingRef.current.upserts.delete(id);
+    } else {
+      pendingRef.current.upserts.delete(id);
+      pendingRef.current.deletes.add(id);
+    }
+    setSaveStatus('dirty');
+  }, []);
+
+  const updatePlacement = useCallback(
+    (id: string, patch: Partial<BlockPlacement>) => {
+      undo.set((prev) => {
+        const next = prev.map((p) => (p.id === id ? { ...p, ...patch } : p));
+        const updated = next.find((p) => p.id === id);
+        if (updated) queueUpsert(updated);
+        return next;
+      });
+    },
+    [undo, queueUpsert],
+  );
+
+  const createPlacement = useCallback(
+    (blockId: string, xMm: number, yMm: number) => {
+      const block = blocksById.get(blockId);
+      if (!block) return;
+      const size = defaultPlacementSize(block.type);
+      const tempId = `${NEW_PREFIX}${crypto.randomUUID()}`;
+      const placement: BlockPlacement = {
+        id: tempId,
+        cheatsheetId: cheatsheet.id,
+        blockId,
+        x: xMm,
+        y: yMm,
+        width: size.width,
+        height: size.height,
+        rotation: 0,
+        zIndex: (placements.at(-1)?.zIndex ?? 0) + 1,
+      };
+      undo.set((prev) => [...prev, placement]);
+      queueUpsert(placement);
+      setSelectedId(tempId);
+    },
+    [blocksById, cheatsheet.id, placements, undo, queueUpsert],
+  );
+
+  const duplicateSelected = useCallback(() => {
+    if (!selectedId) return;
+    const src = placements.find((p) => p.id === selectedId);
+    if (!src) return;
+    const tempId = `${NEW_PREFIX}${crypto.randomUUID()}`;
+    const copy: BlockPlacement = {
+      ...src,
+      id: tempId,
+      x: src.x + 5,
+      y: src.y + 5,
+      zIndex: (placements.at(-1)?.zIndex ?? 0) + 1,
+    };
+    undo.set((prev) => [...prev, copy]);
+    queueUpsert(copy);
+    setSelectedId(tempId);
+  }, [selectedId, placements, undo, queueUpsert]);
+
+  const deleteSelected = useCallback(() => {
+    if (!selectedId) return;
+    undo.set((prev) => prev.filter((p) => p.id !== selectedId));
+    queueDelete(selectedId);
+    setSelectedId(null);
+  }, [selectedId, undo, queueDelete]);
+
+  /* ---------------------- auto-save ---------------------- */
+
+  const flushPending = useCallback(async () => {
+    const pending = pendingRef.current;
+    if (pending.upserts.size === 0 && pending.deletes.size === 0) {
+      setSaveStatus('saved');
+      return;
+    }
+    pendingRef.current = newPendingPatch();
+    setSaveStatus('saving');
+
+    const patch: PlacementPatch = {
+      upserts: [...pending.upserts.values()].map((p) => ({
+        id: p.id.startsWith(NEW_PREFIX) ? undefined : p.id,
+        blockId: p.blockId,
+        x: p.x,
+        y: p.y,
+        width: p.width,
+        height: p.height,
+        rotation: p.rotation,
+        zIndex: p.zIndex,
+      })),
+      deletes: [...pending.deletes].filter((id) => !id.startsWith(NEW_PREFIX)),
+    };
+
+    try {
+      await api.patchPlacements(cheatsheet.id, patch);
+      setSaveStatus('saved');
+    } catch (e) {
+      console.error('save failed', e);
+      // Re-queue: merge back so we don't lose the writes
+      for (const [id, p] of pending.upserts) pendingRef.current.upserts.set(id, p);
+      for (const id of pending.deletes) pendingRef.current.deletes.add(id);
+      setSaveStatus('error');
+    }
+  }, [cheatsheet.id]);
+
+  const debouncedFlush = useDebouncedCallback(flushPending, 500);
+
+  useEffect(() => {
+    if (saveStatus === 'dirty') debouncedFlush();
+  }, [saveStatus, debouncedFlush]);
+
+  // Flush on tab close
+  useEffect(() => {
+    const onBeforeUnload = () => {
+      const p = pendingRef.current;
+      if (p.upserts.size > 0 || p.deletes.size > 0) {
+        const patch = JSON.stringify({
+          upserts: [...p.upserts.values()].map((pp) => ({
+            id: pp.id.startsWith(NEW_PREFIX) ? undefined : pp.id,
+            blockId: pp.blockId,
+            x: pp.x,
+            y: pp.y,
+            width: pp.width,
+            height: pp.height,
+            rotation: pp.rotation,
+            zIndex: pp.zIndex,
+          })),
+          deletes: [...p.deletes].filter((id) => !id.startsWith(NEW_PREFIX)),
+        });
+        navigator.sendBeacon(
+          `/api/cheatsheets/${cheatsheet.id}/placements`,
+          new Blob([patch], { type: 'application/json' }),
+        );
+      }
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [cheatsheet.id]);
+
+  /* ---------------------- library mutations ---------------------- */
+
+  const onSaveBlock = useCallback(
+    async (input: { type: BlockType; content: BlockContent; tags: string[] }) => {
+      if (editingBlock) {
+        const updated = await api.updateBlock(editingBlock.id, {
+          content: input.content,
+          tags: input.tags,
+        });
+        setLibrary((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
+      } else {
+        const created = await api.createBlock(input);
+        setLibrary((prev) => [...prev, created]);
+      }
+      setModalOpen(false);
+      setEditingBlock(null);
+    },
+    [editingBlock],
+  );
+
+  const onDeleteBlock = useCallback(
+    async (block: Block) => {
+      if (!confirm(`Delete "${block.type}" block? Placements on this cheatsheet will be removed.`))
+        return;
+      await api.deleteBlock(block.id);
+      setLibrary((prev) => prev.filter((b) => b.id !== block.id));
+      // remove any placements referencing it
+      const removed = placements.filter((p) => p.blockId === block.id);
+      if (removed.length > 0) {
+        undo.set((prev) => prev.filter((p) => p.blockId !== block.id));
+        for (const p of removed) queueDelete(p.id);
+      }
+    },
+    [placements, undo, queueDelete],
+  );
+
+  /* ---------------------- export ---------------------- */
+
+  const onExport = useCallback(async () => {
+    setExporting(true);
+    try {
+      // ensure latest changes are saved first
+      await flushPending();
+      const blob = await api.exportPdf(cheatsheet.id);
+      const url = URL.createObjectURL(blob);
+      const today = new Date().toISOString().slice(0, 10).replaceAll('-', '');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${title.replace(/[^\p{L}\p{N}]+/gu, '_') || 'cheatsheet'}_${today}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('export failed', e);
+      alert(e instanceof Error ? e.message : 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  }, [flushPending, cheatsheet.id, title]);
+
+  /* ---------------------- keyboard ---------------------- */
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      // ignore typing in inputs/textareas
+      if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+      const meta = e.metaKey || e.ctrlKey;
+
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        if (selectedId) {
+          e.preventDefault();
+          deleteSelected();
+        }
+      } else if (meta && e.key.toLowerCase() === 'd') {
+        if (selectedId) {
+          e.preventDefault();
+          duplicateSelected();
+        }
+      } else if (meta && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) undo.redo();
+        else undo.undo();
+      } else if (meta && (e.key === '=' || e.key === '+')) {
+        e.preventDefault();
+        setZoom((z) => Math.min(4, Math.round((z + 0.1) * 10) / 10));
+      } else if (meta && e.key === '-') {
+        e.preventDefault();
+        setZoom((z) => Math.max(0.25, Math.round((z - 0.1) * 10) / 10));
+      } else if (meta && e.key === '0') {
+        e.preventDefault();
+        setZoom(1);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedId, deleteSelected, duplicateSelected, undo]);
+
+  /* ---------------------- title save (debounced) ---------------------- */
+
+  const debouncedTitleSave = useDebouncedCallback(async (next: string) => {
+    try {
+      await fetch(`/api/cheatsheets/${cheatsheet.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: next }),
+      });
+    } catch (e) {
+      console.error('title save failed', e);
+    }
+  }, 800);
+
+  const onTitleChange = useCallback(
+    (next: string) => {
+      setTitle(next);
+      debouncedTitleSave(next);
+    },
+    [debouncedTitleSave],
+  );
+
+  if (isMobile) return <MobileGate />;
+
+  return (
+    <div className="flex h-screen flex-col">
+      <Toolbar
+        title={title}
+        onTitleChange={onTitleChange}
+        zoom={zoom}
+        onZoomChange={setZoom}
+        onUndo={undo.undo}
+        onRedo={undo.redo}
+        canUndo={undo.canUndo}
+        canRedo={undo.canRedo}
+        onExport={onExport}
+        exporting={exporting}
+        saveStatus={saveStatus}
+      />
+      <div className="flex flex-1 overflow-hidden">
+        <Sidebar
+          library={library}
+          onNew={() => {
+            setEditingBlock(null);
+            setModalOpen(true);
+          }}
+          onEdit={(b) => {
+            setEditingBlock(b);
+            setModalOpen(true);
+          }}
+          onDelete={onDeleteBlock}
+        />
+        <main className="flex-1 overflow-hidden">
+          <Canvas
+            placements={placements}
+            blocks={blocksById}
+            zoom={zoom}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onUpdate={updatePlacement}
+            onCreatePlacement={createPlacement}
+          />
+        </main>
+      </div>
+
+      <BlockEditorModal
+        open={modalOpen}
+        initial={editingBlock}
+        onCancel={() => {
+          setModalOpen(false);
+          setEditingBlock(null);
+        }}
+        onSave={onSaveBlock}
+      />
+    </div>
+  );
+}

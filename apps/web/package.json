@@ -15,6 +15,7 @@
   "dependencies": {
     "@cheatsheet/db": "workspace:*",
     "@cheatsheet/shared": "workspace:*",
+    "drizzle-orm": "^0.39.0",
     "katex": "^0.16.21",
     "moveable": "^0.53.0",
     "next": "15.1.4",
