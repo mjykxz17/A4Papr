@@ -133,6 +133,9 @@ export function Canvas({
                   else blockRefs.current.delete(p.id);
                 }}
                 className={`canvas-block ${selectedId === p.id ? 'selected' : ''}`}
+                draggable={false}
+                onDragStart={(e) => e.preventDefault()}
+                onContextMenu={(e) => e.preventDefault()}
                 style={{
                   width: p.width * pxPerMm,
                   height: p.height * pxPerMm,
@@ -199,9 +202,19 @@ export function Canvas({
               onDrag={({ target, transform }) => {
                 target.style.transform = transform;
               }}
-              onDragEnd={({ lastEvent }) => {
-                if (!lastEvent) return;
+              onDragEnd={({ target, isDrag, lastEvent }) => {
+                if (!isDrag || !lastEvent) {
+                  // Drag interrupted (e.g. macOS force-click preempting).
+                  // Reset the inline transform back to React's source of
+                  // truth so the block snaps to its committed position
+                  // rather than wherever Moveable last left it.
+                  target.style.transform = `translate(${selectedPlacement.x * pxPerMm}px, ${selectedPlacement.y * pxPerMm}px)${
+                    selectedPlacement.rotation ? ` rotate(${selectedPlacement.rotation}deg)` : ''
+                  }`;
+                  return;
+                }
                 const [pxX, pxY] = lastEvent.beforeTranslate as [number, number];
+                if (!Number.isFinite(pxX) || !Number.isFinite(pxY)) return;
                 const newXMm = snapMm(pxX / pxPerMm);
                 const newYMm = snapMm(pxY / pxPerMm);
                 const clamped = clampToPage(
@@ -228,11 +241,26 @@ export function Canvas({
                 target.style.height = `${height}px`;
                 target.style.transform = drag.transform;
               }}
-              onResizeEnd={({ lastEvent }) => {
-                if (!lastEvent) return;
+              onResizeEnd={({ target, isDrag, lastEvent }) => {
+                if (!isDrag || !lastEvent) {
+                  target.style.width = `${selectedPlacement.width * pxPerMm}px`;
+                  target.style.height = `${selectedPlacement.height * pxPerMm}px`;
+                  target.style.transform = `translate(${selectedPlacement.x * pxPerMm}px, ${selectedPlacement.y * pxPerMm}px)${
+                    selectedPlacement.rotation ? ` rotate(${selectedPlacement.rotation}deg)` : ''
+                  }`;
+                  return;
+                }
                 const w = lastEvent.width as number;
                 const h = lastEvent.height as number;
                 const [pxX, pxY] = lastEvent.drag.beforeTranslate as [number, number];
+                if (
+                  !Number.isFinite(w) ||
+                  !Number.isFinite(h) ||
+                  !Number.isFinite(pxX) ||
+                  !Number.isFinite(pxY)
+                ) {
+                  return;
+                }
                 const newXMm = snapMm(pxX / pxPerMm);
                 const newYMm = snapMm(pxY / pxPerMm);
                 const newWMm = clamp(snapMm(w / pxPerMm), 5, A4.widthMm);

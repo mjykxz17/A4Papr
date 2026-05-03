@@ -37,6 +37,18 @@ body {
   border: 1px solid transparent;
   box-sizing: border-box;
   user-select: none;
+  -webkit-user-select: none;
+  /* Stop macOS force-click and Safari from initiating native drag-and-drop;
+     Moveable handles all drag interactions itself. */
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
+  touch-action: none;
+}
+
+.canvas-block * {
+  -webkit-user-drag: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .canvas-block.selected {
