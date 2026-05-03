@@ -39,3 +39,6 @@ apps/worker/output/
 
 # Drizzle
 drizzle/.snapshot/
+
+# Playwright MCP scratch (created by browser tooling during local debug)
+.playwright-mcp/
