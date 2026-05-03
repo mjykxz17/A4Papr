@@ -69,6 +69,7 @@ export default async function EditorPage({ params }: PageProps) {
       cheatsheet={cheatsheet}
       initialPlacements={placements}
       initialLibrary={library}
+      aiEnabled={!!process.env.ANTHROPIC_API_KEY}
     />
   );
 }

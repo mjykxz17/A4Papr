@@ -13,6 +13,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.88.0",
     "@cheatsheet/db": "workspace:*",
     "@cheatsheet/shared": "workspace:*",
     "drizzle-orm": "^0.39.0",

@@ -9,11 +9,12 @@ interface SidebarProps {
   onNew: () => void;
   onEdit: (block: Block) => void;
   onDelete: (block: Block) => void;
+  onGenerateFromNotes?: () => void;
 }
 
 const TYPES: Array<BlockType | 'all'> = ['all', 'text', 'formula', 'table'];
 
-export function Sidebar({ library, onNew, onEdit, onDelete }: SidebarProps) {
+export function Sidebar({ library, onNew, onEdit, onDelete, onGenerateFromNotes }: SidebarProps) {
   const [filter, setFilter] = useState<BlockType | 'all'>('all');
   const [query, setQuery] = useState('');
 
@@ -37,7 +38,7 @@ export function Sidebar({ library, onNew, onEdit, onDelete }: SidebarProps) {
 
   return (
     <aside className="editor-chrome flex h-full w-72 flex-col border-r border-slate-200 bg-white">
-      <div className="border-b border-slate-200 p-3">
+      <div className="space-y-2 border-b border-slate-200 p-3">
         <button
           type="button"
           onClick={onNew}
@@ -45,6 +46,16 @@ export function Sidebar({ library, onNew, onEdit, onDelete }: SidebarProps) {
         >
           + New block
         </button>
+        {onGenerateFromNotes && (
+          <button
+            type="button"
+            onClick={onGenerateFromNotes}
+            className="w-full rounded border border-accent/40 bg-accent/5 px-3 py-2 text-sm font-medium text-accent-dark hover:bg-accent/10"
+            title="Paste lecture notes; Claude proposes blocks; you pick which to keep"
+          >
+            ✨ Generate from notes
+          </button>
+        )}
       </div>
 
       <div className="space-y-2 border-b border-slate-200 p-3">

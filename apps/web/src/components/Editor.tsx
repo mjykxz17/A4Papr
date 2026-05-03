@@ -16,6 +16,7 @@ import { BlockEditorModal } from './BlockEditorModal';
 import { CalibrationModal, readCalibration } from './CalibrationModal';
 import { Canvas } from './Canvas';
 import { CanvasContextMenu, type ContextMenuEntry } from './CanvasContextMenu';
+import { ExtractModal } from './ExtractModal';
 import { MobileGate } from './MobileGate';
 import { Sidebar } from './Sidebar';
 import { Toolbar } from './Toolbar';
@@ -26,6 +27,7 @@ interface EditorProps {
   cheatsheet: Cheatsheet;
   initialPlacements: BlockPlacement[];
   initialLibrary: Block[];
+  aiEnabled: boolean;
 }
 
 interface PendingPatch {
@@ -37,7 +39,12 @@ function newPendingPatch(): PendingPatch {
   return { upserts: new Map(), deletes: new Set() };
 }
 
-export function Editor({ cheatsheet, initialPlacements, initialLibrary }: EditorProps) {
+export function Editor({
+  cheatsheet,
+  initialPlacements,
+  initialLibrary,
+  aiEnabled,
+}: EditorProps) {
   const isMobile = useIsMobile();
 
   const [library, setLibrary] = useState<Block[]>(initialLibrary);
@@ -49,6 +56,7 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary }: Editor
   const [editingBlock, setEditingBlock] = useState<Block | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [calibrationOpen, setCalibrationOpen] = useState(false);
+  const [extractOpen, setExtractOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
   const [contextMenu, setContextMenu] = useState<{
@@ -389,6 +397,7 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary }: Editor
             setModalOpen(true);
           }}
           onDelete={onDeleteBlock}
+          onGenerateFromNotes={aiEnabled ? () => setExtractOpen(true) : undefined}
         />
         <main className="flex-1 overflow-hidden">
           <Canvas
@@ -420,6 +429,12 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary }: Editor
         open={calibrationOpen}
         onClose={() => setCalibrationOpen(false)}
         onSaved={(factor) => setZoom(factor)}
+      />
+
+      <ExtractModal
+        open={extractOpen}
+        onClose={() => setExtractOpen(false)}
+        onAdded={(added) => setLibrary((prev) => [...prev, ...added])}
       />
 
       {contextMenu && (() => {
