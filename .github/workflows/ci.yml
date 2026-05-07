@@ -12,6 +12,20 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cheatsheet
+          POSTGRES_PASSWORD: cheatsheet
+          POSTGRES_DB: cheatsheet
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cheatsheet"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       SESSION_SECRET: ci-secret-thats-long-enough-32bytes
       WORKER_SHARED_SECRET: ci-secret-thats-long-enough-32bytes
@@ -30,6 +44,8 @@ jobs:
           node-version: '20'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Apply database migrations
+        run: pnpm db:migrate
       - name: Lint
         run: pnpm lint
       - name: Typecheck

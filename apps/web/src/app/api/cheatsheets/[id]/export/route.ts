@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import { cheatsheets, getDb } from '@cheatsheet/db';
+import { serverEnv } from '@/lib/env';
 import { readDeviceId } from '@/lib/session';
+import { requestRender } from '@/lib/worker-client';
 
 interface Ctx {
   params: Promise<{ id: string }>;
@@ -24,32 +26,24 @@ export async function POST(_req: Request, { params }: Ctx) {
     .limit(1);
   if (!sheet) return NextResponse.json({ error: 'not found' }, { status: 404 });
 
-  const workerUrl = process.env.WORKER_URL ?? 'http://localhost:4000';
-  const sharedSecret = process.env.WORKER_SHARED_SECRET;
-  if (!sharedSecret) {
-    return NextResponse.json({ error: 'WORKER_SHARED_SECRET not set' }, { status: 500 });
-  }
-
-  const res = await fetch(`${workerUrl}/render`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${sharedSecret}`,
+  const env = serverEnv();
+  const result = await requestRender(
+    { cheatsheetId: id, deviceId },
+    {
+      workerUrl: env.WORKER_URL,
+      sharedSecret: env.WORKER_SHARED_SECRET,
+      timeoutMs: env.WORKER_RENDER_TIMEOUT_MS,
     },
-    body: JSON.stringify({ cheatsheetId: id, deviceId }),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    return NextResponse.json(
-      { error: `worker failed: ${res.status} ${text}` },
-      { status: 502 },
-    );
+  );
+
+  if (!result.ok) {
+    return NextResponse.json({ error: result.message }, { status: result.status });
   }
 
   const today = new Date().toISOString().slice(0, 10).replaceAll('-', '');
   const filename = `${slugify(sheet.title)}_${today}.pdf`;
 
-  return new NextResponse(res.body, {
+  return new NextResponse(result.body, {
     status: 200,
     headers: {
       'content-type': 'application/pdf',
@@ -60,9 +54,11 @@ export async function POST(_req: Request, { params }: Ctx) {
 }
 
 function slugify(s: string): string {
-  return s
-    .normalize('NFKD')
-    .replace(/[^\p{L}\p{N}]+/gu, '_')
-    .replace(/^_+|_+$/g, '')
-    .slice(0, 60) || 'cheatsheet';
+  return (
+    s
+      .normalize('NFKD')
+      .replace(/[^\p{L}\p{N}]+/gu, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 60) || 'cheatsheet'
+  );
 }

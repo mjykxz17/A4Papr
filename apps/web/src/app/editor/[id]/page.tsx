@@ -1,8 +1,12 @@
+import { cookies, headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { and, asc, eq } from 'drizzle-orm';
 import { blocks, blockPlacements, cheatsheets, getDb } from '@cheatsheet/db';
 import { getOrCreateDeviceId } from '@/lib/session';
+import { serverEnv } from '@/lib/env';
+import { isMobileUserAgent } from '@/lib/is-mobile-ua';
 import { Editor } from '@/components/Editor';
+import { MobileGate, MOBILE_OVERRIDE_COOKIE } from '@/components/MobileGate';
 import type { Block, BlockPlacement, Cheatsheet } from '@cheatsheet/shared';
 
 interface PageProps {
@@ -11,6 +15,16 @@ interface PageProps {
 
 export default async function EditorPage({ params }: PageProps) {
   const { id } = await params;
+
+  // Block phones from rendering the editor (drag-and-drop on a tiny
+  // viewport produces unusable cheatsheets). The user can opt in via
+  // a cookie that the gate sets on click — we don't gate that hard.
+  const hdrs = await headers();
+  const jar = await cookies();
+  if (isMobileUserAgent(hdrs.get('user-agent')) && jar.get(MOBILE_OVERRIDE_COOKIE)?.value !== '1') {
+    return <MobileGate />;
+  }
+
   const deviceId = await getOrCreateDeviceId();
   const db = getDb();
 
@@ -27,10 +41,7 @@ export default async function EditorPage({ params }: PageProps) {
     .where(eq(blockPlacements.cheatsheetId, sheet.id))
     .orderBy(asc(blockPlacements.zIndex));
 
-  const blockRows = await db
-    .select()
-    .from(blocks)
-    .where(eq(blocks.deviceId, deviceId));
+  const blockRows = await db.select().from(blocks).where(eq(blocks.deviceId, deviceId));
 
   const cheatsheet: Cheatsheet = {
     id: sheet.id,
@@ -69,7 +80,7 @@ export default async function EditorPage({ params }: PageProps) {
       cheatsheet={cheatsheet}
       initialPlacements={placements}
       initialLibrary={library}
-      aiEnabled={!!process.env.ANTHROPIC_API_KEY}
+      aiEnabled={!!serverEnv().ANTHROPIC_API_KEY}
     />
   );
 }

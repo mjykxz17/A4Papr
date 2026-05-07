@@ -171,15 +171,17 @@ export function Canvas({
   // Snap alignment targets: every other block. snapVersion bumps when
   // a placement settles so Moveable re-reads positions.
   const snapElements = useMemo(() => {
+    // snapVersion is a deliberate cache-bust dep so Moveable re-reads
+    // positions when a placement settles; no react-hooks lint rule is
+    // configured here, so we don't need a disable comment.
     return placements
       .filter((p) => p.id !== selectedId)
       .map((p) => blockRefs.current.get(p.id))
       .filter((el): el is HTMLDivElement => el != null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [placements, selectedId, snapVersion]);
 
   const selectedPlacement = useMemo(
-    () => (selectedId ? placements.find((p) => p.id === selectedId) ?? null : null),
+    () => (selectedId ? (placements.find((p) => p.id === selectedId) ?? null) : null),
     [selectedId, placements],
   );
 

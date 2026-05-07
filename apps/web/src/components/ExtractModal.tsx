@@ -1,12 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import {
-  BlockContent,
-  type Block,
-  type BlockType,
-  type CreateBlockInput,
-} from '@cheatsheet/shared';
+import type { Block, BlockContent, BlockType, CreateBlockInput } from '@cheatsheet/shared';
 import { api } from '@/lib/api-client';
 import { parseMarkdownBlocks } from '@/lib/markdown-import';
 import { BlockView } from './blocks/BlockView';
@@ -285,11 +280,11 @@ export function ExtractModal({ open, aiAvailable, onClose, onAdded }: Props) {
               {showByoTip && (
                 <div className="mt-2 space-y-2 text-slate-600">
                   <p>
-                    Copy the prompt below into ChatGPT, Claude.ai, Gemini, or any other
-                    chatbot, replace the bracketed placeholder with your notes, then paste
-                    the chatbot’s output back into the textarea here and press{' '}
-                    <strong>Import</strong>. Both markdown (with <code>## Heading</code>{' '}
-                    sections) and JSON code blocks are accepted.
+                    Copy the prompt below into ChatGPT, Claude.ai, Gemini, or any other chatbot,
+                    replace the bracketed placeholder with your notes, then paste the chatbot’s
+                    output back into the textarea here and press <strong>Import</strong>. Both
+                    markdown (with <code>## Heading</code> sections) and JSON code blocks are
+                    accepted.
                   </p>
                   <div className="relative">
                     <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded border border-slate-200 bg-white p-2 font-mono text-[11px] leading-relaxed text-slate-700">

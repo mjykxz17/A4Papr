@@ -22,7 +22,7 @@ import { MobileGate } from './MobileGate';
 import { Sidebar } from './Sidebar';
 import { Toolbar } from './Toolbar';
 
-type SaveStatus = 'saved' | 'saving' | 'dirty' | 'error';
+type SaveStatus = 'saved' | 'saving' | 'dirty' | 'error' | 'offline';
 
 interface EditorProps {
   cheatsheet: Cheatsheet;
@@ -40,12 +40,7 @@ function newPendingPatch(): PendingPatch {
   return { upserts: new Map(), deletes: new Set() };
 }
 
-export function Editor({
-  cheatsheet,
-  initialPlacements,
-  initialLibrary,
-  aiEnabled,
-}: EditorProps) {
+export function Editor({ cheatsheet, initialPlacements, initialLibrary, aiEnabled }: EditorProps) {
   const isMobile = useIsMobile();
 
   const [library, setLibrary] = useState<Block[]>(initialLibrary);
@@ -185,6 +180,10 @@ export function Editor({
       setSaveStatus('saved');
       return;
     }
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setSaveStatus('offline');
+      return;
+    }
     pendingRef.current = newPendingPatch();
     setSaveStatus('saving');
 
@@ -219,6 +218,27 @@ export function Editor({
   useEffect(() => {
     if (saveStatus === 'dirty') debouncedFlush();
   }, [saveStatus, debouncedFlush]);
+
+  // Track online/offline so the user knows when their auto-saves are
+  // queued vs persisted. On reconnect we kick the flush ourselves —
+  // the patch queue still holds the unsent writes.
+  useEffect(() => {
+    const onOnline = () => {
+      const p = pendingRef.current;
+      if (p.upserts.size > 0 || p.deletes.size > 0) setSaveStatus('dirty');
+      else setSaveStatus((s) => (s === 'offline' ? 'saved' : s));
+    };
+    const onOffline = () => setSaveStatus('offline');
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setSaveStatus('offline');
+    }
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, []);
 
   // Flush on tab close
   useEffect(() => {
@@ -474,80 +494,81 @@ export function Editor({
         }}
       />
 
-      {contextMenu && (() => {
-        let items: ContextMenuEntry[] = [];
-        if (contextMenu.kind === 'placement') {
-          const placement = placements.find((p) => p.id === contextMenu.placementId);
-          const block = placement ? blocksById.get(placement.blockId) ?? null : null;
-          items = [
-            {
-              label: 'Bring to front',
-              onClick: () => bringToFront(contextMenu.placementId),
-            },
-            {
-              label: 'Send to back',
-              onClick: () => sendToBack(contextMenu.placementId),
-            },
-            { separator: true },
-            {
-              label: 'Edit content',
-              onClick: () => {
-                if (block) {
+      {contextMenu &&
+        (() => {
+          let items: ContextMenuEntry[] = [];
+          if (contextMenu.kind === 'placement') {
+            const placement = placements.find((p) => p.id === contextMenu.placementId);
+            const block = placement ? (blocksById.get(placement.blockId) ?? null) : null;
+            items = [
+              {
+                label: 'Bring to front',
+                onClick: () => bringToFront(contextMenu.placementId),
+              },
+              {
+                label: 'Send to back',
+                onClick: () => sendToBack(contextMenu.placementId),
+              },
+              { separator: true },
+              {
+                label: 'Edit content',
+                onClick: () => {
+                  if (block) {
+                    setEditingBlock(block);
+                    setModalOpen(true);
+                  }
+                },
+              },
+              { separator: true },
+              {
+                label: 'Delete',
+                destructive: true,
+                onClick: () => {
+                  setSelectedId(contextMenu.placementId);
+                  deleteSelected();
+                },
+              },
+            ];
+          } else {
+            // libraryBlock context menu — clicked a sidebar card
+            const block = blocksById.get(contextMenu.blockId) ?? null;
+            if (!block) return null;
+            items = [
+              {
+                label: 'Edit',
+                onClick: () => {
                   setEditingBlock(block);
                   setModalOpen(true);
-                }
+                },
               },
-            },
-            { separator: true },
-            {
-              label: 'Delete',
-              destructive: true,
-              onClick: () => {
-                setSelectedId(contextMenu.placementId);
-                deleteSelected();
+              {
+                label: 'Duplicate',
+                onClick: async () => {
+                  const copy = await api.createBlock({
+                    type: block.type,
+                    content: block.content,
+                    tags: block.tags,
+                  });
+                  setLibrary((prev) => [...prev, copy]);
+                },
               },
-            },
-          ];
-        } else {
-          // libraryBlock context menu — clicked a sidebar card
-          const block = blocksById.get(contextMenu.blockId) ?? null;
-          if (!block) return null;
-          items = [
-            {
-              label: 'Edit',
-              onClick: () => {
-                setEditingBlock(block);
-                setModalOpen(true);
+              { separator: true },
+              {
+                label: 'Delete from library',
+                destructive: true,
+                onClick: () => onDeleteBlock(block),
               },
-            },
-            {
-              label: 'Duplicate',
-              onClick: async () => {
-                const copy = await api.createBlock({
-                  type: block.type,
-                  content: block.content,
-                  tags: block.tags,
-                });
-                setLibrary((prev) => [...prev, copy]);
-              },
-            },
-            { separator: true },
-            {
-              label: 'Delete from library',
-              destructive: true,
-              onClick: () => onDeleteBlock(block),
-            },
-          ];
-        }
-        return (
-          <ContextMenu
-            x={contextMenu.x}
-            y={contextMenu.y}
-            items={items}
-            onClose={() => setContextMenu(null)}
-          />
-        );
-      })()}
+            ];
+          }
+          return (
+            <ContextMenu
+              x={contextMenu.x}
+              y={contextMenu.y}
+              items={items}
+              onClose={() => setContextMenu(null)}
+            />
+          );
+        })()}
     </div>
   );
 }

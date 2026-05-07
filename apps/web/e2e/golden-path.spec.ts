@@ -39,11 +39,32 @@ test('anonymous user creates a text block and drags it onto the canvas', async (
   // a placement renders on the page
   await expect(page.locator('.canvas-block')).toHaveCount(1);
 
-  // export PDF — only assert the request fires; mocking the worker is overkill here.
-  await Promise.all([
+  // duplicate via ⌘D (Cmd on macOS, Ctrl elsewhere) — verifies undo
+  // history captures the second placement.
+  const ctrl = process.platform === 'darwin' ? 'Meta' : 'Control';
+  await page.locator('.canvas-block').first().click();
+  await page.keyboard.press(`${ctrl}+d`);
+  await expect(page.locator('.canvas-block')).toHaveCount(2);
+
+  // undo: pops back to one placement
+  await page.keyboard.press(`${ctrl}+z`);
+  await expect(page.locator('.canvas-block')).toHaveCount(1);
+
+  // redo (Shift+Cmd/Ctrl+Z): restores the second placement
+  await page.keyboard.press(`Shift+${ctrl}+z`);
+  await expect(page.locator('.canvas-block')).toHaveCount(2);
+
+  // export PDF — wait for the response, assert it's a real PDF.
+  const [exportResponse] = await Promise.all([
     page.waitForResponse(
       (r) => r.url().includes('/api/cheatsheets/') && r.url().endsWith('/export'),
     ),
     page.getByRole('button', { name: /Export PDF/ }).click(),
   ]);
+  expect(exportResponse.status()).toBe(200);
+  expect(exportResponse.headers()['content-type']).toMatch(/application\/pdf/);
+  const body = await exportResponse.body();
+  expect(body.byteLength).toBeGreaterThan(1000);
+  // PDFs start with the magic bytes "%PDF"
+  expect(body.subarray(0, 4).toString('ascii')).toBe('%PDF');
 });
