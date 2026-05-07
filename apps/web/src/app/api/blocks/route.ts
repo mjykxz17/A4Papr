@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { blocks, getDb } from '@cheatsheet/db';
 import { CreateBlockInput, type Block } from '@cheatsheet/shared';
-import { getOrCreateDeviceId } from '@/lib/session';
+import { readJsonBody } from '@/lib/http';
+import { withRoute } from '@/lib/route-helpers';
 
 function rowToBlock(row: typeof blocks.$inferSelect): Block {
   return {
@@ -16,16 +17,14 @@ function rowToBlock(row: typeof blocks.$inferSelect): Block {
   };
 }
 
-export async function GET() {
-  const deviceId = await getOrCreateDeviceId();
+export const GET = withRoute(async ({ deviceId }) => {
   const db = getDb();
   const rows = await db.select().from(blocks).where(eq(blocks.deviceId, deviceId));
   return NextResponse.json(rows.map(rowToBlock));
-}
+});
 
-export async function POST(req: Request) {
-  const deviceId = await getOrCreateDeviceId();
-  const body = await req.json().catch(() => null);
+export const POST = withRoute(async ({ req, deviceId }) => {
+  const body = await readJsonBody(req);
   const parsed = CreateBlockInput.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
@@ -44,4 +43,4 @@ export async function POST(req: Request) {
     })
     .returning();
   return NextResponse.json(rowToBlock(row!), { status: 201 });
-}
+});

@@ -5,13 +5,15 @@
  *
  * The HTTP routing lives in `./app.ts` (testable factory).
  * This entrypoint wires real dependencies (Puppeteer, in-memory rate
- * limiter, validated env) and starts the listener.
+ * limiter, concurrency cap, validated env) and starts the listener.
  */
 import { serve } from '@hono/node-server';
 import { closeBrowser, renderCheatsheetPdf } from '@cheatsheet/pdf';
+import { createRateLimiter } from '@cheatsheet/shared';
 import { createApp } from './app.js';
+import { createConcurrencyLimit } from './concurrency.js';
 import { loadEnv } from './env.js';
-import { createRateLimiter } from './rate-limit.js';
+import { log } from './logger.js';
 
 const env = loadEnv();
 
@@ -22,14 +24,17 @@ const app = createApp({
     capacity: env.RATE_LIMIT_PER_MIN,
     refillPerMinute: env.RATE_LIMIT_PER_MIN,
   }),
+  concurrency: createConcurrencyLimit(env.RENDER_CONCURRENCY, {
+    maxQueue: env.RENDER_QUEUE_DEPTH,
+  }),
 });
 
 const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
-  console.warn(`worker listening on http://localhost:${info.port}`);
+  log.info('worker listening', { port: info.port });
 });
 
 const shutdown = async (signal: string): Promise<void> => {
-  console.warn(`${signal} received, shutting down`);
+  log.warn('shutdown initiated', { signal });
   server.close();
   await closeBrowser();
   process.exit(0);

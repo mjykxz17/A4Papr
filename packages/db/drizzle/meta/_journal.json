@@ -8,6 +8,13 @@
       "when": 1777830684483,
       "tag": "0000_melted_dust",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778165881595,
+      "tag": "0001_pink_electro",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createUndoController } from './undo-stack.js';
 
 /** Debounce a callback. The returned function preserves the latest args. */
 export function useDebouncedCallback<TArgs extends unknown[]>(
@@ -11,9 +12,12 @@ export function useDebouncedCallback<TArgs extends unknown[]>(
   const fnRef = useRef(fn);
   fnRef.current = fn;
 
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
 
   return useCallback(
     (...args: TArgs) => {
@@ -55,59 +59,47 @@ interface UndoStack<T> {
  * Simple snapshot-based undo/redo. Push a new snapshot on every
  * meaningful edit (drop, drag-end, resize-end, delete, duplicate),
  * not on every per-pixel drag tick.
+ *
+ * The actual stack mutations live in `createUndoController` so the
+ * logic is unit-testable without React. This hook just mirrors the
+ * controller's state into a React render.
  */
 export function useUndoStack<T>({ initial, capacity = 50 }: UndoStackOptions<T>): UndoStack<T> {
+  const controllerRef = useRef<ReturnType<typeof createUndoController<T>> | null>(null);
+  if (controllerRef.current === null) {
+    controllerRef.current = createUndoController<T>({ initial, capacity });
+  }
   const [state, setState] = useState<T>(initial);
-  const past = useRef<T[]>([]);
-  const future = useRef<T[]>([]);
-  const [version, setVersion] = useState(0);
-  const bump = () => setVersion((v) => v + 1);
+  const [, setVersion] = useState(0);
+  const bump = useCallback(() => setVersion((v) => v + 1), []);
 
-  const set = useCallback(
-    (next: T | ((prev: T) => T), opts?: { history?: boolean }) => {
-      setState((prev) => {
-        const value = typeof next === 'function' ? (next as (p: T) => T)(prev) : next;
-        if (opts?.history !== false) {
-          past.current.push(prev);
-          if (past.current.length > capacity) past.current.shift();
-          future.current = [];
-          bump();
-        }
-        return value;
-      });
+  const set = useCallback<UndoStack<T>['set']>(
+    (next, opts) => {
+      const value = controllerRef.current!.set(next, opts);
+      setState(value);
+      if (opts?.history !== false) bump();
     },
-    [capacity],
+    [bump],
   );
 
   const undo = useCallback(() => {
-    setState((prev) => {
-      const last = past.current.pop();
-      if (last === undefined) return prev;
-      future.current.push(prev);
-      bump();
-      return last;
-    });
-  }, []);
+    const value = controllerRef.current!.undo();
+    setState(value);
+    bump();
+  }, [bump]);
 
   const redo = useCallback(() => {
-    setState((prev) => {
-      const next = future.current.pop();
-      if (next === undefined) return prev;
-      past.current.push(prev);
-      bump();
-      return next;
-    });
-  }, []);
+    const value = controllerRef.current!.redo();
+    setState(value);
+    bump();
+  }, [bump]);
 
-  // `version` is referenced here so React keeps recomputing canUndo/canRedo
-  // when the past/future refs change.
-  void version;
   return {
     state,
     set,
     undo,
     redo,
-    canUndo: past.current.length > 0,
-    canRedo: future.current.length > 0,
+    canUndo: controllerRef.current.canUndo(),
+    canRedo: controllerRef.current.canRedo(),
   };
 }

@@ -37,6 +37,10 @@ test-results/
 apps/worker/tmp/
 apps/worker/output/
 
+# User-uploaded images (the dir is checked in via .gitkeep; contents are not)
+apps/web/public/uploads/*
+!apps/web/public/uploads/.gitkeep
+
 # Drizzle
 drizzle/.snapshot/
 

@@ -78,3 +78,32 @@ export const TEST_DEVICE_ID = '11111111-1111-4111-8111-111111111111';
 export const TEST_BLOCK_ID = '22222222-2222-4222-8222-222222222222';
 export const TEST_CHEATSHEET_ID = '33333333-3333-4333-8333-333333333333';
 export const TEST_PLACEMENT_ID = '44444444-4444-4444-8444-444444444444';
+
+/** APP_URL the test env is configured with — also the same-origin value. */
+export const TEST_APP_URL = 'http://app.test';
+
+/**
+ * Build a Request that the route helpers will accept: Origin is set to
+ * the test APP_URL so the CSRF check passes by default. Pass
+ * `{ origin: 'http://evil.test' }` to deliberately exercise the CSRF
+ * rejection path.
+ */
+export function buildRequest(
+  url: string,
+  init: {
+    method?: string;
+    body?: string | Record<string, unknown>;
+    origin?: string | null;
+    headers?: Record<string, string>;
+  } = {},
+): Request {
+  const headers: Record<string, string> = { ...init.headers };
+  if (init.origin !== null) headers.origin = init.origin ?? TEST_APP_URL;
+  const body =
+    typeof init.body === 'string' ? init.body : init.body ? JSON.stringify(init.body) : undefined;
+  return new Request(url, {
+    method: init.method ?? 'GET',
+    headers,
+    body,
+  });
+}

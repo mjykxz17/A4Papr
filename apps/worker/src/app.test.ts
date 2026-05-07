@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createRateLimiter } from '@cheatsheet/shared';
 import { createApp, type AppDeps } from './app.js';
 import type { WorkerEnv } from './env.js';
-import { createRateLimiter } from './rate-limit.js';
 
 const SECRET = 's'.repeat(32);
 
@@ -12,6 +12,8 @@ const baseEnv: WorkerEnv = {
   WORKER_SHARED_SECRET: SECRET,
   RATE_LIMIT_PER_MIN: 60,
   RENDER_TIMEOUT_MS: 5_000,
+  RENDER_CONCURRENCY: 1,
+  RENDER_QUEUE_DEPTH: 8,
 };
 
 function buildDeps(overrides: Partial<AppDeps> = {}): AppDeps {
@@ -131,6 +133,40 @@ describe('worker /render', () => {
     expect(res.status).toBe(500);
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain('puppeteer crashed');
+  });
+});
+
+describe('worker /render concurrency', () => {
+  it('503s when the queue is full', async () => {
+    let release!: () => void;
+    const renderPdf = vi.fn().mockImplementation(
+      () =>
+        new Promise<Uint8Array>((resolve) => {
+          release = () => resolve(new Uint8Array([0x25, 0x50, 0x44, 0x46]));
+        }),
+    );
+    const { createConcurrencyLimit } = await import('./concurrency.js');
+    const concurrency = createConcurrencyLimit(1, { maxQueue: 0 });
+    const app = createApp(buildDeps({ renderPdf, concurrency }));
+    const validBody = {
+      cheatsheetId: '11111111-1111-4111-8111-111111111111',
+      deviceId: '22222222-2222-4222-8222-222222222222',
+    };
+
+    // Saturate the single slot with an in-flight render.
+    const inflight = app.fetch(
+      buildRequest({ authorization: `Bearer ${SECRET}`, body: validBody }),
+    );
+    // Yield so the renderPdf invocation registers as active.
+    await Promise.resolve();
+
+    const overflow = await app.fetch(
+      buildRequest({ authorization: `Bearer ${SECRET}`, body: validBody }),
+    );
+    expect(overflow.status).toBe(503);
+
+    release();
+    expect((await inflight).status).toBe(200);
   });
 });
 

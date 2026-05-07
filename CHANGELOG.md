@@ -10,7 +10,57 @@ patch versions remain backwards-compatible bug fixes only.
 
 ## [Unreleased]
 
-### Added
+### Added (post-review hardening pass, second iteration)
+
+- **Magic-link claim flow.** `auth_claims` + `auth_tokens` tables,
+  `/api/auth/claim` and `/api/auth/verify` routes, "Save library…"
+  modal in the toolbar. Email "delivery" prints the link to stderr
+  until an SMTP transport is wired in (intentionally minimal — see
+  ADR-007).
+- **Image block type.** End-to-end: schema, BlockEditorModal upload UI,
+  `/api/uploads` route with magic-byte MIME sniffing (PNG / JPEG /
+  GIF / WEBP), content-addressed storage under
+  `apps/web/public/uploads/`, `image_uploads` table for ownership.
+- **Structured JSON logger.** No deps, lives in `apps/web/src/lib/logger.ts`
+  and `apps/worker/src/logger.ts`. Edge middleware mints `x-request-id`
+  on first request; route handlers carry it through every log line via
+  `requestLogger(req)`.
+- **`withRoute` wrapper.** Centralises session enforcement, CSRF
+  Origin/Referer check, request-scoped logging, and error responses.
+  Routes opt out explicitly via `{ requireSession: false, csrf: false }`.
+- **Web-side CSRF.** All mutating routes reject mismatched Origin /
+  Referer with 403; missing both → hard reject (defence in depth on
+  top of `SameSite=Lax`).
+- **JSON body size cap (`readJsonBody`).** Default 256 KB; placements
+  patch raised to 1 MB; image upload to 5 MB; auth claim to 4 KB.
+  Both Content-Length and streamed-byte path are capped.
+- **/api/extract hardening.** Per-device token-bucket rate limit
+  (default 5/min), explicit body cap (64 KB pre-Zod), and persistent
+  usage logging via the new `ai_usage` table (input/cache/output
+  tokens, status, duration).
+- **/api/healthz on web.** Pings the DB; load-balancer-friendly
+  (no session, no CSRF).
+- **Worker concurrency cap.** `createConcurrencyLimit(N, { maxQueue })`
+  in front of Puppeteer; defaults to 1 in flight, 8 queued, anything
+  past gets a fast 503. Configurable via `RENDER_CONCURRENCY` and
+  `RENDER_QUEUE_DEPTH`.
+- **Keyboard accessibility on the canvas.** Selected placement is
+  focusable (`role=button`, aria-label with mm coords), arrow keys
+  nudge ±1mm (Shift = ±10mm), Enter / Space opens the editor.
+- **Pure undo controller (`createUndoController`).** Logic split out
+  of the `useUndoStack` hook so it can be unit-tested directly. New
+  test suite covers every state transition.
+- **CI E2E job.** Builds web + worker, installs Playwright Chromium,
+  starts both servers, polls `/healthz`, runs `pnpm test:e2e`,
+  uploads the report on failure.
+- **Backup tooling.** `scripts/backup.sh` (custom-format `pg_dump`)
+  and `scripts/restore.sh` (refuses to overwrite a populated DB
+  unless `FORCE=1`). Documented in DECISIONS-ADR-010.
+- **DECISIONS.md ADRs.** Eleven architecture-decision records covering
+  positioning, worker model, CSRF, rate limit, concurrency, magic
+  link, uploads, logger, backup, and the `withRoute` wrapper.
+
+### Added (initial post-review hardening pass)
 
 - Server-side A4 bounds validation for placements: writes that would
   put a block outside the printable area are rejected with HTTP 400,

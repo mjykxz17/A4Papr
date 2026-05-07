@@ -8,6 +8,7 @@ import {
   type Block,
   type BlockType,
   type FormulaBlockContent,
+  type ImageBlockContent,
   type TableBlockContent,
   type TextBlockContent,
 } from '@cheatsheet/shared';
@@ -90,7 +91,7 @@ export function BlockEditorModal({ open, initial, onCancel, onSave }: BlockEdito
         <div className="space-y-4 px-4 py-4">
           {!initial && (
             <div className="flex gap-2">
-              {(['text', 'formula', 'table'] as const).map((t) => (
+              {(['text', 'formula', 'table', 'image'] as const).map((t) => (
                 <button
                   key={t}
                   type="button"
@@ -107,15 +108,10 @@ export function BlockEditorModal({ open, initial, onCancel, onSave }: BlockEdito
             </div>
           )}
 
-          {content.type === 'text' && (
-            <TextEditor content={content} onChange={setContent} />
-          )}
-          {content.type === 'formula' && (
-            <FormulaEditor content={content} onChange={setContent} />
-          )}
-          {content.type === 'table' && (
-            <TableEditor content={content} onChange={setContent} />
-          )}
+          {content.type === 'text' && <TextEditor content={content} onChange={setContent} />}
+          {content.type === 'formula' && <FormulaEditor content={content} onChange={setContent} />}
+          {content.type === 'table' && <TableEditor content={content} onChange={setContent} />}
+          {content.type === 'image' && <ImageEditor content={content} onChange={setContent} />}
 
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-700">Tags</span>
@@ -271,6 +267,97 @@ function FormulaPreview({ content }: { content: FormulaBlockContent }) {
   return (
     <div className="rounded border border-slate-200 bg-slate-50 p-3 text-center">
       <div ref={setEl} />
+    </div>
+  );
+}
+
+function ImageEditor({
+  content,
+  onChange,
+}: {
+  content: ImageBlockContent;
+  onChange: (c: ImageBlockContent) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const onPick = async (file: File) => {
+    setBusy(true);
+    setError(null);
+    try {
+      // Decode locally to get intrinsic width/height before upload.
+      const url = URL.createObjectURL(file);
+      const dim = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+        img.onerror = () => reject(new Error('not a valid image'));
+        img.src = url;
+      }).finally(() => URL.revokeObjectURL(url));
+
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('width', String(dim.width));
+      fd.append('height', String(dim.height));
+      const res = await fetch('/api/uploads', {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: fd,
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: unknown };
+        throw new Error(typeof body.error === 'string' ? body.error : `HTTP ${res.status}`);
+      }
+      const data = (await res.json()) as {
+        url: string;
+        width: number;
+        height: number;
+      };
+      onChange({ ...content, url: data.url, width: data.width, height: data.height });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'upload failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <label className="block">
+        <span className="mb-1 block text-xs font-medium text-slate-700">Image file</span>
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          disabled={busy}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void onPick(f);
+          }}
+          className="block w-full text-xs"
+        />
+      </label>
+      {content.url && (
+        // Direct <img> is intentional — uploads are user-supplied and
+        // we want a small, predictable preview, not Next's optimisation
+        // pipeline. The Next image plugin isn't loaded in this project.
+        <img
+          src={content.url}
+          alt={content.alt}
+          className="max-h-40 rounded border border-slate-200 bg-slate-50 object-contain"
+        />
+      )}
+      <label className="block">
+        <span className="mb-1 block text-xs font-medium text-slate-700">Alt text</span>
+        <input
+          type="text"
+          value={content.alt}
+          maxLength={200}
+          onChange={(e) => onChange({ ...content, alt: e.target.value })}
+          placeholder="Describe the image for screen readers"
+          className="w-full rounded border border-slate-300 px-2 py-1 text-sm focus:border-accent focus:outline-none"
+        />
+      </label>
+      {busy && <p className="text-xs text-slate-500">Uploading…</p>}
+      {error && <p className="text-xs text-rose-600">{error}</p>}
     </div>
   );
 }

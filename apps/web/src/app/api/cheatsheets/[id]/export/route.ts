@@ -2,22 +2,15 @@ import { NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import { cheatsheets, getDb } from '@cheatsheet/db';
 import { serverEnv } from '@/lib/env';
-import { readDeviceId } from '@/lib/session';
+import { withRoute } from '@/lib/route-helpers';
 import { requestRender } from '@/lib/worker-client';
-
-interface Ctx {
-  params: Promise<{ id: string }>;
-}
 
 /**
  * Calls the long-lived worker to render a PDF, then streams it back
  * to the client as an attachment. Web tier just authenticates.
  */
-export async function POST(_req: Request, { params }: Ctx) {
-  const deviceId = await readDeviceId();
-  if (!deviceId) return NextResponse.json({ error: 'no session' }, { status: 401 });
-  const { id } = await params;
-
+export const POST = withRoute<{ id: string }>(async ({ deviceId, params, logger }) => {
+  const { id } = params;
   const db = getDb();
   const [sheet] = await db
     .select()
@@ -37,6 +30,7 @@ export async function POST(_req: Request, { params }: Ctx) {
   );
 
   if (!result.ok) {
+    logger.warn('worker render failed', { status: result.status, message: result.message });
     return NextResponse.json({ error: result.message }, { status: result.status });
   }
 
@@ -51,7 +45,7 @@ export async function POST(_req: Request, { params }: Ctx) {
       'cache-control': 'no-store',
     },
   });
-}
+});
 
 function slugify(s: string): string {
   return (

@@ -57,16 +57,31 @@ async function isValid(value: string, secret: string): Promise<boolean> {
   return diff === 0;
 }
 
+const REQUEST_ID_HEADER = 'x-request-id';
+
 export async function middleware(req: NextRequest) {
   const secret = process.env.SESSION_SECRET;
   if (!secret || secret.length < 16) {
     return NextResponse.json({ error: 'SESSION_SECRET not configured' }, { status: 500 });
   }
+
+  // Mint or propagate a request id so every server log line carries the
+  // same correlation id. Downstream route handlers read this from
+  // req.headers via `requestLogger(req)`.
+  const requestId = req.headers.get(REQUEST_ID_HEADER) ?? uuid();
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set(REQUEST_ID_HEADER, requestId);
+
   const existing = req.cookies.get(DEVICE_COOKIE)?.value;
-  if (existing && (await isValid(existing, secret))) return NextResponse.next();
+  if (existing && (await isValid(existing, secret))) {
+    const res = NextResponse.next({ request: { headers: requestHeaders } });
+    res.headers.set(REQUEST_ID_HEADER, requestId);
+    return res;
+  }
 
   const id = uuid();
-  const res = NextResponse.next();
+  const res = NextResponse.next({ request: { headers: requestHeaders } });
+  res.headers.set(REQUEST_ID_HEADER, requestId);
   res.cookies.set(DEVICE_COOKIE, await sign(id, secret), {
     httpOnly: true,
     sameSite: 'lax',

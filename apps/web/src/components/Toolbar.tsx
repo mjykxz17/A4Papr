@@ -12,6 +12,7 @@ interface ToolbarProps {
   canUndo: boolean;
   canRedo: boolean;
   onExport: () => void;
+  onClaim: () => void;
   exporting: boolean;
   saveStatus: 'saved' | 'saving' | 'dirty' | 'error' | 'offline';
 }
@@ -28,6 +29,7 @@ export function Toolbar({
   canUndo,
   canRedo,
   onExport,
+  onClaim,
   exporting,
   saveStatus,
 }: ToolbarProps) {
@@ -96,6 +98,13 @@ export function Toolbar({
           aria-label="Calibrate actual size"
         >
           ⚙
+        </button>
+        <button
+          onClick={onClaim}
+          className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50"
+          title="Save your library to an email so you can restore it on another device"
+        >
+          Save library…
         </button>
         <button
           onClick={onExport}
