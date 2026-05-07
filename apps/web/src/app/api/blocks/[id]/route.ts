@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import { blocks, getDb } from '@cheatsheet/db';
 import { UpdateBlockInput, type Block } from '@cheatsheet/shared';
-import { readDeviceId } from '@/lib/session';
+import { readJsonBody } from '@/lib/http';
+import { withRoute } from '@/lib/route-helpers';
 
 function rowToBlock(row: typeof blocks.$inferSelect): Block {
   return {
@@ -16,20 +17,12 @@ function rowToBlock(row: typeof blocks.$inferSelect): Block {
   };
 }
 
-interface Ctx {
-  params: Promise<{ id: string }>;
-}
-
-export async function PATCH(req: Request, { params }: Ctx) {
-  const deviceId = await readDeviceId();
-  if (!deviceId) return NextResponse.json({ error: 'no session' }, { status: 401 });
-  const { id } = await params;
-  const body = await req.json().catch(() => null);
+export const PATCH = withRoute<{ id: string }>(async ({ req, deviceId, params }) => {
+  const body = await readJsonBody(req);
   const parsed = UpdateBlockInput.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
-
   const db = getDb();
   const [row] = await db
     .update(blocks)
@@ -39,17 +32,14 @@ export async function PATCH(req: Request, { params }: Ctx) {
       ...(parsed.data.tags !== undefined ? { tags: parsed.data.tags } : {}),
       updatedAt: new Date(),
     })
-    .where(and(eq(blocks.id, id), eq(blocks.deviceId, deviceId)))
+    .where(and(eq(blocks.id, params.id), eq(blocks.deviceId, deviceId)))
     .returning();
   if (!row) return NextResponse.json({ error: 'not found' }, { status: 404 });
   return NextResponse.json(rowToBlock(row));
-}
+});
 
-export async function DELETE(_req: Request, { params }: Ctx) {
-  const deviceId = await readDeviceId();
-  if (!deviceId) return NextResponse.json({ error: 'no session' }, { status: 401 });
-  const { id } = await params;
+export const DELETE = withRoute<{ id: string }>(async ({ deviceId, params }) => {
   const db = getDb();
-  await db.delete(blocks).where(and(eq(blocks.id, id), eq(blocks.deviceId, deviceId)));
+  await db.delete(blocks).where(and(eq(blocks.id, params.id), eq(blocks.deviceId, deviceId)));
   return new NextResponse(null, { status: 204 });
-}
+});

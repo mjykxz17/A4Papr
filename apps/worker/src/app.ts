@@ -2,13 +2,15 @@
  * Worker HTTP app, factored out of the entrypoint so it can be tested
  * with stubbed renderers and stubbed clocks.
  *
- *   const app = createApp({ env, renderPdf, rateLimiter });
+ *   const app = createApp({ env, renderPdf, rateLimiter, concurrency });
  *   const res = await app.fetch(new Request('http://test/render', ...));
  */
 import { Hono } from 'hono';
+import type { RateLimiter } from '@cheatsheet/shared';
 import { z } from 'zod';
+import { QueueFullError, type ConcurrencyLimit } from './concurrency.js';
 import type { WorkerEnv } from './env.js';
-import type { RateLimiter } from './rate-limit.js';
+import { requestLogger, REQUEST_ID_HEADER } from './logger.js';
 
 export interface RenderArgs {
   cheatsheetId: string;
@@ -24,6 +26,8 @@ export interface AppDeps {
   renderPdf: (args: RenderArgs & { url: string }) => Promise<Uint8Array>;
   /** Per-IP rate limiter. */
   rateLimiter: RateLimiter;
+  /** Cap on concurrent renders. Optional; without it, no limit is applied. */
+  concurrency?: ConcurrencyLimit;
   /**
    * Hard cap on render duration. The default uses `env.RENDER_TIMEOUT_MS`
    * but tests can override.
@@ -58,9 +62,12 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/healthz', (c) => c.json({ ok: true }));
 
   app.post('/render', async (c) => {
+    const logger = requestLogger(c.req.raw);
+
     // 1. Auth: shared secret in Authorization header.
     const auth = c.req.header('authorization') ?? '';
     if (auth !== `Bearer ${deps.env.WORKER_SHARED_SECRET}`) {
+      logger.warn('render unauthorized');
       return c.json({ error: 'unauthorized' }, 401);
     }
 
@@ -70,6 +77,7 @@ export function createApp(deps: AppDeps): Hono {
       c.req.header('x-real-ip') ??
       'unknown';
     if (!deps.rateLimiter.take(ip)) {
+      logger.warn('render rate-limited', { ip });
       return c.json({ error: 'rate limit exceeded' }, 429);
     }
 
@@ -86,31 +94,45 @@ export function createApp(deps: AppDeps): Hono {
     url.searchParams.set('device', parsed.data.deviceId);
     url.searchParams.set('key', deps.env.WORKER_SHARED_SECRET);
 
-    // 5. Render with a hard timeout — a stuck Puppeteer page would
-    // otherwise pin a worker until OOM.
+    const requestId = c.req.header(REQUEST_ID_HEADER) ?? undefined;
+    const reqLogger = logger.child({
+      cheatsheetId: parsed.data.cheatsheetId,
+      deviceId: parsed.data.deviceId,
+    });
+
+    // 5. Render with concurrency cap (optional) + hard timeout.
+    const startedAt = Date.now();
     try {
-      const pdf = await withTimeout(
-        deps.renderPdf({
-          cheatsheetId: parsed.data.cheatsheetId,
-          deviceId: parsed.data.deviceId,
-          url: url.toString(),
-        }),
-        renderTimeoutMs,
-        'render',
-      );
-      return new Response(pdf, {
-        status: 200,
-        headers: {
-          'content-type': 'application/pdf',
-          'content-length': String(pdf.byteLength),
-        },
+      const exec = (): Promise<Uint8Array> =>
+        withTimeout(
+          deps.renderPdf({
+            cheatsheetId: parsed.data.cheatsheetId,
+            deviceId: parsed.data.deviceId,
+            url: url.toString(),
+          }),
+          renderTimeoutMs,
+          'render',
+        );
+      const pdf = deps.concurrency ? await deps.concurrency(exec) : await exec();
+
+      reqLogger.info('render ok', {
+        bytes: pdf.byteLength,
+        durationMs: Date.now() - startedAt,
       });
+      const headers: Record<string, string> = {
+        'content-type': 'application/pdf',
+        'content-length': String(pdf.byteLength),
+      };
+      if (requestId) headers[REQUEST_ID_HEADER] = requestId;
+      return new Response(pdf, { status: 200, headers });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'render failed';
-      // Differentiate timeout (504) vs other render failures (500) so
-      // the web tier can surface a useful message.
-      const status = msg.includes('timed out') ? 504 : 500;
-      console.error('render failed', err);
+      // Differentiate timeout (504), queue-full (503), and other render
+      // failures (500) so the web tier can surface a useful message.
+      let status: 500 | 503 | 504 = 500;
+      if (err instanceof QueueFullError) status = 503;
+      else if (msg.includes('timed out')) status = 504;
+      reqLogger.error('render failed', { err: msg, status });
       return c.json({ error: msg }, status);
     }
   });

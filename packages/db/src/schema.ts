@@ -10,6 +10,11 @@ import {
 } from 'drizzle-orm/pg-core';
 import type { BlockContent } from '@cheatsheet/shared';
 
+// NOTE: when editing schemas, regenerate the SQL with:
+//   pnpm db:generate
+// then commit the new file under packages/db/drizzle/. CI applies
+// pending migrations before running tests.
+
 /**
  * Schema notes
  * ------------
@@ -76,9 +81,93 @@ export const blockPlacements = pgTable(
   }),
 );
 
+/**
+ * Anthropic call accounting. One row per /api/extract invocation, used to
+ * answer "how many tokens did device X spend last week" and to enforce a
+ * daily input budget.
+ */
+export const aiUsage = pgTable(
+  'ai_usage',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    deviceId: uuid('device_id').notNull(),
+    route: text('route').notNull(), // e.g. 'extract'
+    model: text('model').notNull(),
+    inputTokens: integer('input_tokens').notNull().default(0),
+    cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
+    cacheWriteTokens: integer('cache_write_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    /** HTTP status of the call (200, 429, 502, …). */
+    status: integer('status').notNull(),
+    /** End-to-end duration in ms. */
+    durationMs: integer('duration_ms').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byDevice: index('ai_usage_device_id_idx').on(t.deviceId),
+    byCreated: index('ai_usage_created_at_idx').on(t.createdAt),
+  }),
+);
+
+/**
+ * Magic-link claim: the canonical mapping from email → device_id. Claiming
+ * an email re-binds it to the current device. Verifying a token on a fresh
+ * device adopts the device_id stored here so both devices share a library.
+ */
+export const authClaims = pgTable('auth_claims', {
+  email: text('email').primaryKey(),
+  deviceId: uuid('device_id').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+/**
+ * One-time-use token table for magic-link verification. Tokens expire
+ * after 30 minutes and are marked consumed on first use.
+ */
+export const authTokens = pgTable(
+  'auth_tokens',
+  {
+    token: text('token').primaryKey(),
+    email: text('email').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    consumedAt: timestamp('consumed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byEmail: index('auth_tokens_email_idx').on(t.email),
+  }),
+);
+
+/**
+ * Image upload metadata. Files are content-addressed by SHA-256 hash and
+ * stored on disk under `apps/web/public/uploads/{hash}.{ext}`. This table
+ * tracks ownership for cleanup and per-device quota.
+ */
+export const imageUploads = pgTable(
+  'image_uploads',
+  {
+    hash: text('hash').primaryKey(),
+    deviceId: uuid('device_id').notNull(),
+    mime: text('mime').notNull(),
+    bytes: integer('bytes').notNull(),
+    width: integer('width').notNull(),
+    height: integer('height').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byDevice: index('image_uploads_device_id_idx').on(t.deviceId),
+  }),
+);
+
 export type CheatsheetRow = typeof cheatsheets.$inferSelect;
 export type NewCheatsheet = typeof cheatsheets.$inferInsert;
 export type BlockRow = typeof blocks.$inferSelect;
 export type NewBlock = typeof blocks.$inferInsert;
 export type BlockPlacementRow = typeof blockPlacements.$inferSelect;
 export type NewBlockPlacement = typeof blockPlacements.$inferInsert;
+export type AiUsageRow = typeof aiUsage.$inferSelect;
+export type NewAiUsage = typeof aiUsage.$inferInsert;
+export type AuthClaimRow = typeof authClaims.$inferSelect;
+export type AuthTokenRow = typeof authTokens.$inferSelect;
+export type ImageUploadRow = typeof imageUploads.$inferSelect;

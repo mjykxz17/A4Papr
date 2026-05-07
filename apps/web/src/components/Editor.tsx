@@ -16,6 +16,7 @@ import { useDebouncedCallback, useIsMobile, useUndoStack } from '@/lib/hooks';
 import { BlockEditorModal } from './BlockEditorModal';
 import { CalibrationModal, readCalibration } from './CalibrationModal';
 import { Canvas } from './Canvas';
+import { ClaimModal } from './ClaimModal';
 import { ContextMenu, type ContextMenuEntry } from './ContextMenu';
 import { ExtractModal } from './ExtractModal';
 import { MobileGate } from './MobileGate';
@@ -52,6 +53,7 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary, aiEnable
   const [editingBlock, setEditingBlock] = useState<Block | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [calibrationOpen, setCalibrationOpen] = useState(false);
+  const [claimOpen, setClaimOpen] = useState(false);
   const [extractOpen, setExtractOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
@@ -341,6 +343,25 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary, aiEnable
           e.preventDefault();
           deleteSelected();
         }
+      } else if (
+        !meta &&
+        selectedId &&
+        (e.key === 'ArrowLeft' ||
+          e.key === 'ArrowRight' ||
+          e.key === 'ArrowUp' ||
+          e.key === 'ArrowDown')
+      ) {
+        // Keyboard nudge for accessibility: arrows move 1mm, shift+arrow
+        // 10mm. Mirrors what dragging does so users without a pointer
+        // can still position blocks precisely.
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+        const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+        const current = placements.find((p) => p.id === selectedId);
+        if (current) {
+          updatePlacement(selectedId, { x: current.x + dx, y: current.y + dy });
+        }
       } else if (meta && e.key.toLowerCase() === 'd') {
         if (selectedId) {
           e.preventDefault();
@@ -363,7 +384,7 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary, aiEnable
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectedId, deleteSelected, duplicateSelected, undo]);
+  }, [selectedId, deleteSelected, duplicateSelected, undo, placements, updatePlacement]);
 
   /* ---------------------- title save (debounced) ---------------------- */
 
@@ -403,6 +424,7 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary, aiEnable
         canUndo={undo.canUndo}
         canRedo={undo.canRedo}
         onExport={onExport}
+        onClaim={() => setClaimOpen(true)}
         exporting={exporting}
         saveStatus={saveStatus}
       />
@@ -459,6 +481,8 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary, aiEnable
         onClose={() => setCalibrationOpen(false)}
         onSaved={(factor) => setZoom(factor)}
       />
+
+      <ClaimModal open={claimOpen} onClose={() => setClaimOpen(false)} />
 
       <ExtractModal
         open={extractOpen}

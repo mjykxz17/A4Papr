@@ -2,27 +2,24 @@ import { NextResponse } from 'next/server';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { blockPlacements, blocks, cheatsheets, getDb } from '@cheatsheet/db';
 import { PlacementPatch, normalisePlacement } from '@cheatsheet/shared';
-import { readDeviceId } from '@/lib/session';
-
-interface Ctx {
-  params: Promise<{ id: string }>;
-}
+import { readJsonBody } from '@/lib/http';
+import { withRoute } from '@/lib/route-helpers';
 
 /**
  * Bulk patch placements. The auto-saver sends every changed placement
  * (upserts) and every removed one (deletes) in a single debounced call.
+ *
+ * Body cap is generous (1 MB) because a session with many placements can
+ * legitimately produce a large patch.
  */
-export async function POST(req: Request, { params }: Ctx) {
-  const deviceId = await readDeviceId();
-  if (!deviceId) return NextResponse.json({ error: 'no session' }, { status: 401 });
-  const { id: cheatsheetId } = await params;
-
-  const body = await req.json().catch(() => null);
+export const POST = withRoute<{ id: string }>(async ({ req, deviceId, params }) => {
+  const body = await readJsonBody(req, { max: 1_000_000 });
   const parsed = PlacementPatch.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
   const { upserts, deletes } = parsed.data;
+  const cheatsheetId = params.id;
 
   const db = getDb();
   const [sheet] = await db
@@ -97,4 +94,4 @@ export async function POST(req: Request, { params }: Ctx) {
   });
 
   return NextResponse.json({ ok: true });
-}
+});

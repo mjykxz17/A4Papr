@@ -1,15 +1,18 @@
 /**
- * Token-bucket rate limiter, per-key (e.g. per-IP).
+ * Token-bucket rate limiter, per-key (e.g. per-IP or per-device-id).
  *
- * Simple, deps-free, in-memory. For multi-instance worker fleets we'd
- * swap this for a Redis backend; the API stays the same.
+ * Simple, deps-free, in-memory. For multi-instance fleets we'd swap
+ * this for a Redis backend; the API stays the same.
  *
  * - `capacity`: maximum tokens (max burst).
- * - `refillPerMinute`: how many tokens are added per minute (steady state rate).
+ * - `refillPerMinute`: how many tokens are added per minute (steady rate).
  *
  * `take()` returns `true` and decrements when a token is available;
  * `false` otherwise. Buckets that haven't been touched in
  * `idleTtlMs` are pruned on the next access so memory stays bounded.
+ *
+ * Lives in shared so both web (`/api/extract`) and worker (`/render`)
+ * can reuse the same implementation.
  */
 
 interface Bucket {

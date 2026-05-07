@@ -2,25 +2,32 @@ import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { aiUsage, getDb } from '@cheatsheet/db';
 import { serverEnv } from '@/lib/env';
+import { extractRateLimiter } from '@/lib/extract-rate-limit';
 import { MAX_NOTES_LENGTH, wrapNotes } from '@/lib/extract-prompt';
-import { readDeviceId } from '@/lib/session';
+import { readJsonBody } from '@/lib/http';
+import { withRoute } from '@/lib/route-helpers';
 
 /**
  * Lecture-note → cheatsheet blocks via Claude Sonnet 4.6.
  *
- * Uses messages.parse() with a Zod-typed output schema so the model
- * is constrained to return blocks that match the editor's content
- * shapes exactly. The system prompt is large and stable; we mark it
- * with cache_control so repeated extractions hit the prompt cache.
+ * Uses messages.parse() with a Zod-typed output schema so the model is
+ * constrained to return blocks that match the editor's content shapes
+ * exactly. The system prompt is large and stable; we mark it with
+ * cache_control so repeated extractions hit the prompt cache.
  *
- * Output is reviewed by the user before any block is persisted —
- * this route returns proposals only. The client POSTs accepted
- * blocks back through /api/blocks.
+ * Hardening:
+ *   - Per-device rate limit (defaults to 5/min) so abuse can't drain the
+ *     Anthropic budget.
+ *   - 64 KB body cap (notes themselves are capped at ~50 KB by Zod).
+ *   - Token usage is persisted to ai_usage so spend is queryable.
  */
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
+
+const MODEL = 'claude-sonnet-4-6';
 
 const ProposedTextBlock = z.object({
   type: z.literal('text'),
@@ -83,10 +90,50 @@ The user's notes will be delivered inside a <student_notes>…</student_notes> X
 
 Return ONLY blocks the student would meaningfully use. If the notes are too sparse to extract from, return an empty array.`;
 
-export async function POST(req: Request) {
-  const deviceId = await readDeviceId();
-  if (!deviceId) {
-    return NextResponse.json({ error: 'no session' }, { status: 401 });
+interface UsageRecord {
+  inputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  outputTokens: number;
+}
+
+async function persistUsage(
+  deviceId: string,
+  status: number,
+  durationMs: number,
+  usage: Partial<UsageRecord>,
+): Promise<void> {
+  try {
+    const db = getDb();
+    await db.insert(aiUsage).values({
+      deviceId,
+      route: 'extract',
+      model: MODEL,
+      inputTokens: usage.inputTokens ?? 0,
+      cacheReadTokens: usage.cacheReadTokens ?? 0,
+      cacheWriteTokens: usage.cacheWriteTokens ?? 0,
+      outputTokens: usage.outputTokens ?? 0,
+      status,
+      durationMs,
+    });
+  } catch {
+    // Usage logging is best-effort — never let it break the user-facing
+    // response. The route logger captures the broader error context.
+  }
+}
+
+export const POST = withRoute(async ({ req, deviceId, logger }) => {
+  // Cap body before parsing — the model accepts up to MAX_NOTES_LENGTH
+  // but JSON encoding plus padding can push raw bytes higher.
+  const rawBody = await readJsonBody(req, { max: 64 * 1024 });
+
+  // Per-device rate limit (defends Anthropic spend, not server CPU).
+  if (!extractRateLimiter().take(deviceId)) {
+    logger.warn('extract rate-limited');
+    return NextResponse.json(
+      { error: 'rate limit exceeded — try again in a minute' },
+      { status: 429 },
+    );
   }
 
   const apiKey = serverEnv().ANTHROPIC_API_KEY;
@@ -97,17 +144,17 @@ export async function POST(req: Request) {
     );
   }
 
-  const body = await req.json().catch(() => null);
-  const parsed = RequestBody.safeParse(body);
+  const parsed = RequestBody.safeParse(rawBody);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
   const client = new Anthropic({ apiKey });
+  const startedAt = Date.now();
 
   try {
     const response = await client.messages.parse({
-      model: 'claude-sonnet-4-6',
+      model: MODEL,
       max_tokens: 8000,
       system: [
         {
@@ -135,33 +182,37 @@ export async function POST(req: Request) {
     });
 
     const result = response.parsed_output;
+    const usage: UsageRecord = {
+      inputTokens: response.usage.input_tokens,
+      cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+      cacheWriteTokens: response.usage.cache_creation_input_tokens ?? 0,
+      outputTokens: response.usage.output_tokens,
+    };
+    const durationMs = Date.now() - startedAt;
+
     if (!result) {
+      await persistUsage(deviceId, 502, durationMs, usage);
       return NextResponse.json({ error: 'extraction failed: no parsed output' }, { status: 502 });
     }
 
-    return NextResponse.json({
-      blocks: result.blocks,
-      usage: {
-        inputTokens: response.usage.input_tokens,
-        cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
-        cacheWriteTokens: response.usage.cache_creation_input_tokens ?? 0,
-        outputTokens: response.usage.output_tokens,
-      },
-    });
+    await persistUsage(deviceId, 200, durationMs, usage);
+    return NextResponse.json({ blocks: result.blocks, usage });
   } catch (err) {
+    const durationMs = Date.now() - startedAt;
     if (err instanceof Anthropic.RateLimitError) {
+      await persistUsage(deviceId, 429, durationMs, {});
       return NextResponse.json({ error: 'rate limited — try again shortly' }, { status: 429 });
     }
     if (err instanceof Anthropic.APIError) {
-      return NextResponse.json(
-        { error: `Claude API error: ${err.message}` },
-        { status: err.status ?? 502 },
-      );
+      const status = err.status ?? 502;
+      await persistUsage(deviceId, status, durationMs, {});
+      return NextResponse.json({ error: `Claude API error: ${err.message}` }, { status });
     }
-    console.error('extract route failed', err);
+    logger.error('extract route failed', { err: String(err) });
+    await persistUsage(deviceId, 500, durationMs, {});
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'extraction failed' },
       { status: 500 },
     );
   }
-}
+});

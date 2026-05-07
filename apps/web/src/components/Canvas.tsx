@@ -218,6 +218,17 @@ export function Canvas({
                 }}
                 className={`canvas-block ${selectedId === p.id ? 'selected' : ''}`}
                 draggable={false}
+                role="button"
+                tabIndex={0}
+                aria-label={`${block.type} block at ${Math.round(p.x)}mm, ${Math.round(p.y)}mm. Press Enter to edit, arrow keys to move.`}
+                aria-pressed={selectedId === p.id}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onEditBlock?.(block);
+                  }
+                }}
+                onFocus={() => onSelect(p.id)}
                 onDragStart={(e) => e.preventDefault()}
                 onContextMenu={(e) => {
                   e.preventDefault();
@@ -242,7 +253,7 @@ export function Canvas({
                   e.stopPropagation();
                   onEditBlock?.(block);
                 }}
-                title="Double-click to edit"
+                title="Double-click to edit · arrow keys to nudge"
               >
                 {/* Inner content rendered at the un-zoomed (1×) logical
                     size and visually scaled by `zoom` so absolute-unit

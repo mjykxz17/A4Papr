@@ -14,6 +14,18 @@ const EnvSchema = z.object({
   RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().default(20),
   /** Hard cap on a single render duration, in ms. */
   RENDER_TIMEOUT_MS: z.coerce.number().int().positive().default(45_000),
+  /**
+   * Maximum number of renders running at once. The default is 1 because a
+   * single Puppeteer browser is usually the bottleneck; raise this if you
+   * configure multiple browser contexts or run several browser pools.
+   */
+  RENDER_CONCURRENCY: z.coerce.number().int().positive().default(1),
+  /**
+   * Max renders allowed to wait when concurrency is saturated. Anything
+   * beyond this gets a 503 immediately, so the queue can't grow without
+   * bound under sustained overload.
+   */
+  RENDER_QUEUE_DEPTH: z.coerce.number().int().positive().default(8),
 });
 
 export type WorkerEnv = z.infer<typeof EnvSchema>;

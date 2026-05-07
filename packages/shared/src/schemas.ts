@@ -30,14 +30,38 @@ export const TableBlockContent = z.object({
 });
 export type TableBlockContent = z.infer<typeof TableBlockContent>;
 
+/**
+ * Image block. The `url` is either a relative `/uploads/{hash}.{ext}` path
+ * (uploaded to our own storage) or an absolute https URL (pasted by the
+ * user). Width/height are intrinsic pixel dimensions reported by the
+ * client; stored so we can compute aspect ratio without re-decoding.
+ */
+export const ImageBlockContent = z.object({
+  type: z.literal('image'),
+  url: z
+    .string()
+    .min(1)
+    .max(2048)
+    .refine(
+      (s) =>
+        s.startsWith('/uploads/') || s.startsWith('https://') || s.startsWith('http://localhost'),
+      'image url must be a relative /uploads path or absolute https URL',
+    ),
+  width: z.number().int().positive().max(20_000),
+  height: z.number().int().positive().max(20_000),
+  alt: z.string().max(200).default(''),
+});
+export type ImageBlockContent = z.infer<typeof ImageBlockContent>;
+
 export const BlockContent = z.discriminatedUnion('type', [
   TextBlockContent,
   FormulaBlockContent,
   TableBlockContent,
+  ImageBlockContent,
 ]);
 export type BlockContent = z.infer<typeof BlockContent>;
 
-export const BlockType = z.enum(['text', 'formula', 'table']);
+export const BlockType = z.enum(['text', 'formula', 'table', 'image']);
 export type BlockType = z.infer<typeof BlockType>;
 
 /* ------------------------------------------------------------------ *
@@ -216,6 +240,8 @@ export function defaultContentFor(type: BlockType): BlockContent {
         compact: false,
         headerStyle: 'bold',
       };
+    case 'image':
+      return { type: 'image', url: '', width: 100, height: 100, alt: '' };
   }
 }
 
@@ -228,6 +254,8 @@ export function defaultPlacementSize(type: BlockType): { width: number; height: 
       return { width: 50, height: 15 };
     case 'table':
       return { width: 80, height: 40 };
+    case 'image':
+      return { width: 50, height: 50 };
   }
 }
 
