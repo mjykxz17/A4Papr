@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { hashBytes, sniffImageMime } from './uploads.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { hashBytes, sniffImageMime, storeImage } from './uploads.js';
+import { _resetEnvCache } from './env.js';
 
 describe('sniffImageMime', () => {
   it('detects PNG by magic bytes', () => {
@@ -43,5 +44,58 @@ describe('hashBytes', () => {
     const a = hashBytes(new Uint8Array([1, 2, 3]));
     const b = hashBytes(new Uint8Array([1, 2, 3]));
     expect(a).toBe(b);
+  });
+});
+
+describe('storeImage backend dispatch', () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    _resetEnvCache();
+  });
+
+  afterEach(() => {
+    // Restore env so tests don't leak state across files.
+    for (const k of [
+      'S3_ENDPOINT',
+      'S3_BUCKET',
+      'S3_REGION',
+      'S3_ACCESS_KEY_ID',
+      'S3_SECRET_ACCESS_KEY',
+      'S3_PUBLIC_URL',
+    ]) {
+      delete process.env[k];
+    }
+    Object.assign(process.env, originalEnv);
+    _resetEnvCache();
+    vi.restoreAllMocks();
+  });
+
+  it('uses the S3 backend when S3_BUCKET is set, returning the public URL', async () => {
+    process.env.S3_ENDPOINT = 'https://acct.r2.cloudflarestorage.com';
+    process.env.S3_BUCKET = 'cs-uploads';
+    process.env.S3_REGION = 'auto';
+    process.env.S3_ACCESS_KEY_ID = 'k';
+    process.env.S3_SECRET_ACCESS_KEY = 's';
+    process.env.S3_PUBLIC_URL = 'https://images.example.com';
+
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 200 }));
+
+    const url = await storeImage(new Uint8Array([1, 2, 3]), 'deadbeef', 'png', 'image/png');
+    expect(url).toBe('https://images.example.com/deadbeef.png');
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('throws when S3_BUCKET is set but other secrets are missing', async () => {
+    process.env.S3_BUCKET = 'cs-uploads';
+    delete process.env.S3_ENDPOINT;
+    delete process.env.S3_ACCESS_KEY_ID;
+    delete process.env.S3_SECRET_ACCESS_KEY;
+
+    await expect(storeImage(new Uint8Array(1), 'h', 'png', 'image/png')).rejects.toThrow(
+      /set all four together/,
+    );
   });
 });

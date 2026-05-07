@@ -1,0 +1,70 @@
+# Fly.io deploy spec for the PDF render worker.
+#
+# Usage:
+#   1. flyctl apps create cheatsheet-worker-<suffix>
+#   2. Edit `app` below to that name (or pass `--app <name>`).
+#   3. Set secrets (these are NOT in this file):
+#        flyctl secrets set --app <name> \
+#          DATABASE_URL=postgres://... \
+#          WORKER_SHARED_SECRET=$(openssl rand -hex 32) \
+#          APP_URL=https://<your-vercel-domain>
+#   4. flyctl deploy --config apps/worker/fly.toml \
+#        --dockerfile apps/worker/Dockerfile \
+#        --remote-only
+#   5. Note `https://<name>.fly.dev` — this is your WORKER_URL on Vercel.
+#
+# Edit `primary_region` to whatever's closest to your users / DB.
+
+app = "cheatsheet-worker"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+# Worker is stateless apart from its in-memory rate limiter / queue;
+# autoscale to zero when idle, but keep one warm for predictable
+# first-render latency.
+[[services]]
+  internal_port = 4000
+  protocol = "tcp"
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type = "requests"
+    # The worker rate-limiter caps inflight renders separately
+    # (RENDER_CONCURRENCY); these are soft signals to Fly's proxy.
+    soft_limit = 4
+    hard_limit = 8
+
+  [[services.http_checks]]
+    interval = "15s"
+    timeout = "3s"
+    grace_period = "30s"
+    method = "get"
+    path = "/healthz"
+
+# Puppeteer + Chromium is memory-hungry; 512 MB is the floor.
+# Bump RENDER_CONCURRENCY *only* after you've raised this proportionally.
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 1024
+
+[env]
+  NODE_ENV = "production"
+  PORT = "4000"
+  RENDER_CONCURRENCY = "1"
+  RENDER_QUEUE_DEPTH = "8"
+  RENDER_TIMEOUT_MS = "45000"
+  RATE_LIMIT_PER_MIN = "20"

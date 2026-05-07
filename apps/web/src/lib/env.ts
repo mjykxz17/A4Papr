@@ -25,6 +25,22 @@ const ServerEnvSchema = z.object({
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
   /** Hard cap on a single render request to the worker, in ms. */
   WORKER_RENDER_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+
+  // --- Image storage. Setting `S3_BUCKET` switches uploads from the local
+  // filesystem (good for dev, ephemeral on Vercel) to an S3-compatible
+  // store (R2, AWS S3, MinIO, …). All four secrets are required together.
+  S3_ENDPOINT: z.string().url().optional(),
+  S3_BUCKET: z.string().min(1).optional(),
+  S3_REGION: z.string().default('auto'),
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
+  /**
+   * Public URL prefix mapped to the bucket (an R2 public bucket URL or a
+   * CDN in front). When unset, falls back to `${S3_ENDPOINT}/${S3_BUCKET}`
+   * — that works for AWS public buckets but not for R2 unless the public
+   * bucket URL is enabled.
+   */
+  S3_PUBLIC_URL: z.string().url().optional(),
 });
 
 export type ServerEnv = z.infer<typeof ServerEnvSchema>;

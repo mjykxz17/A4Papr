@@ -67,7 +67,7 @@ export const POST = withRoute(async ({ req, deviceId, logger }) => {
   }
 
   const hash = hashBytes(buf);
-  const url = await storeImage(buf, hash, sniffed.ext);
+  const url = await storeImage(buf, hash, sniffed.ext, sniffed.mime);
 
   // Record ownership; on hash collision (re-upload of the same bytes
   // by the same device) the row already exists — ignore.

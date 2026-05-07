@@ -1,10 +1,18 @@
 /**
- * Helpers for the /api/uploads route.
+ * Image upload helpers.
  *
- * Storage strategy: content-addressed by SHA-256. Files land at
- * `apps/web/public/uploads/{hash}.{ext}` so Next.js's static file
- * server hands them out for free. The hash is unguessable (256 bits)
- * so URLs are effectively private even though the dir is public.
+ * Storage strategy (auto-selected by env):
+ *
+ *   1. **S3 backend** when `S3_BUCKET` is set. Files are PUT to the
+ *      bucket; the returned URL points at `S3_PUBLIC_URL` (or
+ *      `${S3_ENDPOINT}/${S3_BUCKET}` if that's not set). Required for
+ *      Vercel deploys — Vercel's filesystem is ephemeral.
+ *   2. **Filesystem backend** otherwise. Files land at
+ *      `apps/web/public/uploads/{hash}.{ext}` so Next.js's static
+ *      handler hands them out for free. Good for dev; broken on Vercel.
+ *
+ * The hash is unguessable (256 bits) so URLs are effectively private
+ * even though the dir / bucket is public.
  *
  * MIME validation is done by sniffing magic bytes — never trust the
  * client-supplied Content-Type. SVG is rejected to avoid script
@@ -14,6 +22,8 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { serverEnv } from './env.js';
+import { s3PutObject, type S3Config } from './s3.js';
 
 export const UPLOAD_PUBLIC_PREFIX = '/uploads';
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB
@@ -72,26 +82,71 @@ export function hashBytes(bytes: Uint8Array): string {
 
 const PROJECT_ROOT_FROM_NEXT = path.join(process.cwd());
 
-/** On-disk directory where uploads land. Created on first use. */
+/** On-disk directory where filesystem-backend uploads land. */
 export function uploadsDir(): string {
   return path.join(PROJECT_ROOT_FROM_NEXT, 'public', 'uploads');
 }
 
-/** Public URL path for a stored upload. */
-export function uploadUrl(hash: string, ext: string): string {
-  return `${UPLOAD_PUBLIC_PREFIX}/${hash}.${ext}`;
+interface ResolvedS3 {
+  config: S3Config;
+  publicUrlPrefix: string;
 }
 
 /**
- * Store the bytes if they aren't already on disk (deduped by hash).
- * Returns the public URL.
+ * Pull S3 settings out of the validated env and assert all four
+ * secrets are set together. Returns null if storage falls back to FS.
  */
-export async function storeImage(bytes: Uint8Array, hash: string, ext: string): Promise<string> {
+function resolveS3(): ResolvedS3 | null {
+  const env = serverEnv();
+  if (!env.S3_BUCKET) return null;
+  if (!env.S3_ENDPOINT || !env.S3_ACCESS_KEY_ID || !env.S3_SECRET_ACCESS_KEY) {
+    throw new Error(
+      'S3_BUCKET is set but S3_ENDPOINT / S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY are missing — set all four together.',
+    );
+  }
+  const publicUrlPrefix = (env.S3_PUBLIC_URL ?? `${env.S3_ENDPOINT}/${env.S3_BUCKET}`).replace(
+    /\/$/,
+    '',
+  );
+  return {
+    config: {
+      endpoint: env.S3_ENDPOINT,
+      region: env.S3_REGION,
+      bucket: env.S3_BUCKET,
+      accessKeyId: env.S3_ACCESS_KEY_ID,
+      secretAccessKey: env.S3_SECRET_ACCESS_KEY,
+    },
+    publicUrlPrefix,
+  };
+}
+
+/**
+ * Store the bytes if they aren't already on disk / in the bucket
+ * (deduped by hash). Returns the public URL.
+ */
+export async function storeImage(
+  bytes: Uint8Array,
+  hash: string,
+  ext: string,
+  contentType: string,
+): Promise<string> {
+  const s3 = resolveS3();
+  const key = `${hash}.${ext}`;
+
+  if (s3) {
+    // R2 / S3: PUT every time. Servers may dedupe; we don't bother
+    // doing a HEAD first because a 5 MB upload over a 1 Gbps link is
+    // ~50 ms and the round-trip would cost about as much.
+    await s3PutObject(s3.config, { key, body: bytes, contentType });
+    return `${s3.publicUrlPrefix}/${key}`;
+  }
+
+  // Filesystem fallback (local dev only; ephemeral on Vercel).
   const dir = uploadsDir();
   await mkdir(dir, { recursive: true });
-  const filePath = path.join(dir, `${hash}.${ext}`);
+  const filePath = path.join(dir, key);
   if (!existsSync(filePath)) {
     await writeFile(filePath, bytes);
   }
-  return uploadUrl(hash, ext);
+  return `${UPLOAD_PUBLIC_PREFIX}/${key}`;
 }

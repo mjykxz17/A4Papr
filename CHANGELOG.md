@@ -10,6 +10,23 @@ patch versions remain backwards-compatible bug fixes only.
 
 ## [Unreleased]
 
+### Added (deployment pass)
+
+- **Vercel + Fly.io + Neon + R2 deploy spec.** `vercel.json` (build
+  command runs migrations), `apps/worker/Dockerfile` (Node 20 +
+  Chromium + Noto CJK + dumb-init, non-root user), `apps/worker/fly.toml`
+  (Singapore region, autoscale to zero, /healthz check). Step-by-step
+  walkthrough in `DEPLOY.md`.
+- **S3-compatible image storage adapter.** `apps/web/src/lib/s3.ts`:
+  in-house SigV4 signer (no AWS SDK dep, ~70 lines of `node:crypto`).
+  `storeImage()` dispatches to S3 when `S3_BUCKET` is set, falls back
+  to filesystem for local dev. Env: `S3_ENDPOINT`, `S3_BUCKET`,
+  `S3_REGION` (default `auto` for R2), `S3_ACCESS_KEY_ID`,
+  `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_URL`.
+- **5 new tests** for the S3 path + `storeImage` dispatch (sigv4
+  format, error surface, deterministic signature, dispatch by env,
+  partial-config rejection).
+
 ### Added (post-review hardening pass, second iteration)
 
 - **Magic-link claim flow.** `auth_claims` + `auth_tokens` tables,
