@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { blockPlacements, blocks, cheatsheets, getDb } from '@cheatsheet/db';
-import { PlacementPatch } from '@cheatsheet/shared';
+import { PlacementPatch, normalisePlacement } from '@cheatsheet/shared';
 import { readDeviceId } from '@/lib/session';
 
 interface Ctx {
@@ -53,17 +53,17 @@ export async function POST(req: Request, { params }: Ctx) {
       await tx
         .delete(blockPlacements)
         .where(
-          and(
-            eq(blockPlacements.cheatsheetId, cheatsheetId),
-            inArray(blockPlacements.id, deletes),
-          ),
+          and(eq(blockPlacements.cheatsheetId, cheatsheetId), inArray(blockPlacements.id, deletes)),
         );
     }
-    for (const u of upserts) {
+    for (const raw of upserts) {
       // Client mints UUIDs and always sends one. Use a real upsert
       // (insert-on-conflict-do-update) so a placement created on the
       // client and then dragged auto-reconciles to a single row.
-      if (!u.id) continue;
+      if (!raw.id) continue;
+      // Clamp to A4 before persisting. Schema validation tolerates a
+      // small overflow slack; storage should always be exactly on-page.
+      const u = normalisePlacement(raw);
       await tx
         .insert(blockPlacements)
         .values({

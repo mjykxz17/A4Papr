@@ -5,8 +5,11 @@ import {
   PlacementPatch,
   TableBlockContent,
   TextBlockContent,
+  UpsertPlacementInput,
   defaultContentFor,
+  normalisePlacement,
 } from './schemas.js';
+import { A4 } from './units.js';
 
 describe('block content schemas', () => {
   describe('text', () => {
@@ -144,6 +147,81 @@ describe('PlacementPatch', () => {
         deletes: [],
       }),
     ).toThrow();
+  });
+});
+
+describe('UpsertPlacementInput page-bounds', () => {
+  const baseValid = {
+    id: '11111111-1111-1111-1111-111111111111',
+    blockId: '22222222-2222-2222-2222-222222222222',
+    x: 10,
+    y: 10,
+    width: 50,
+    height: 30,
+    rotation: 0,
+    zIndex: 0,
+  };
+
+  it('accepts a placement that fits inside A4', () => {
+    expect(UpsertPlacementInput.parse(baseValid).x).toBe(10);
+  });
+
+  it('rejects a placement whose right edge runs off the page', () => {
+    expect(() =>
+      UpsertPlacementInput.parse({ ...baseValid, x: A4.widthMm - 10, width: 50 }),
+    ).toThrow(/right edge/);
+  });
+
+  it('rejects a placement whose bottom edge runs off the page', () => {
+    expect(() =>
+      UpsertPlacementInput.parse({ ...baseValid, y: A4.heightMm - 10, height: 50 }),
+    ).toThrow(/bottom/);
+  });
+
+  it('rejects a placement positioned far above the page', () => {
+    expect(() => UpsertPlacementInput.parse({ ...baseValid, y: -10 })).toThrow(/above/);
+  });
+
+  it('tolerates a small overflow slack (≤2mm)', () => {
+    // simulate float-rounding mid-resize
+    const input = {
+      ...baseValid,
+      x: A4.widthMm - 50 + 1.5, // 1.5mm over-edge
+    };
+    expect(UpsertPlacementInput.parse(input).x).toBeCloseTo(A4.widthMm - 50 + 1.5, 6);
+  });
+});
+
+describe('normalisePlacement', () => {
+  it('returns the input unchanged when it fits', () => {
+    const p = { x: 20, y: 20, width: 100, height: 50 };
+    expect(normalisePlacement(p)).toEqual(p);
+  });
+
+  it('clamps x/y back inside the page', () => {
+    const out = normalisePlacement({ x: -5, y: -5, width: 50, height: 50 });
+    expect(out).toEqual({ x: 0, y: 0, width: 50, height: 50 });
+  });
+
+  it('caps width/height at A4', () => {
+    const out = normalisePlacement({ x: 0, y: 0, width: 999, height: 999 });
+    expect(out.width).toBe(A4.widthMm);
+    expect(out.height).toBe(A4.heightMm);
+    expect(out.x).toBe(0);
+    expect(out.y).toBe(0);
+  });
+
+  it('preserves additional fields', () => {
+    const out = normalisePlacement({
+      x: -5,
+      y: -5,
+      width: 50,
+      height: 50,
+      blockId: 'b',
+      rotation: 12,
+    });
+    expect(out.blockId).toBe('b');
+    expect(out.rotation).toBe(12);
   });
 });
 

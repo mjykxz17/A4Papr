@@ -19,11 +19,23 @@
     "format:check": "prettier --check .",
     "db:generate": "pnpm --filter @cheatsheet/db generate",
     "db:migrate": "pnpm --filter @cheatsheet/db migrate",
-    "db:push": "pnpm --filter @cheatsheet/db push"
+    "db:push": "pnpm --filter @cheatsheet/db push",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "*.{js,cjs,mjs,json,md,yml,yaml,css}": [
+      "prettier --write"
+    ]
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "eslint": "^9.18.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.2.10",
     "prettier": "^3.4.2",
     "turbo": "^2.5.0",
     "typescript": "^5.7.3",

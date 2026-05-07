@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { A4, clamp } from './units.js';
+import { A4, clamp, clampToPage } from './units.js';
 
 /* ------------------------------------------------------------------ *
  * Block content schemas — one per `type`.
@@ -48,6 +48,56 @@ const uuid = z.string().uuid();
 const mm = z.number().finite().min(-1000).max(1000);
 const positiveMm = z.number().finite().positive().max(1000);
 
+/**
+ * Tolerance used when validating that a placement fits the A4 page.
+ * The canvas snaps to 1mm and clamps with `clampToPage`, but floating
+ * point and `auto`-grown content can land 1–2mm over the edge during
+ * a debounce window. Allow a small slack to avoid spurious 400s.
+ */
+const PAGE_OVERFLOW_TOLERANCE_MM = 2;
+
+/** Refinement: a placement's bounding box must fit (mostly) inside A4. */
+function fitsOnPage<T extends { x: number; y: number; width: number; height: number }>(
+  v: T,
+  ctx: z.RefinementCtx,
+): void {
+  const slack = PAGE_OVERFLOW_TOLERANCE_MM;
+  if (v.x < -slack) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['x'], message: 'x is left of the page' });
+  }
+  if (v.y < -slack) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['y'], message: 'y is above the page' });
+  }
+  if (v.width > A4.widthMm + slack) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['width'],
+      message: `width exceeds A4 (${A4.widthMm}mm)`,
+    });
+  }
+  if (v.height > A4.heightMm + slack) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['height'],
+      message: `height exceeds A4 (${A4.heightMm}mm)`,
+    });
+  }
+  if (v.x + v.width > A4.widthMm + slack) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['x'],
+      message: 'placement runs off the right edge of the page',
+    });
+  }
+  if (v.y + v.height > A4.heightMm + slack) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['y'],
+      message: 'placement runs off the bottom of the page',
+    });
+  }
+}
+
 export const Block = z.object({
   id: uuid,
   deviceId: uuid,
@@ -59,17 +109,19 @@ export const Block = z.object({
 });
 export type Block = z.infer<typeof Block>;
 
-export const BlockPlacement = z.object({
-  id: uuid,
-  cheatsheetId: uuid,
-  blockId: uuid,
-  x: mm,
-  y: mm,
-  width: positiveMm,
-  height: positiveMm,
-  rotation: z.number().min(-360).max(360),
-  zIndex: z.number().int().min(0).max(10_000),
-});
+export const BlockPlacement = z
+  .object({
+    id: uuid,
+    cheatsheetId: uuid,
+    blockId: uuid,
+    x: mm,
+    y: mm,
+    width: positiveMm,
+    height: positiveMm,
+    rotation: z.number().min(-360).max(360),
+    zIndex: z.number().int().min(0).max(10_000),
+  })
+  .superRefine(fitsOnPage);
 export type BlockPlacement = z.infer<typeof BlockPlacement>;
 
 export const Cheatsheet = z.object({
@@ -110,17 +162,34 @@ export const CreateCheatsheetInput = z.object({
 });
 export type CreateCheatsheetInput = z.infer<typeof CreateCheatsheetInput>;
 
-export const UpsertPlacementInput = z.object({
-  id: uuid,
-  blockId: uuid,
-  x: mm,
-  y: mm,
-  width: positiveMm,
-  height: positiveMm,
-  rotation: z.number().min(-360).max(360).default(0),
-  zIndex: z.number().int().min(0).max(10_000).default(0),
-});
+export const UpsertPlacementInput = z
+  .object({
+    id: uuid,
+    blockId: uuid,
+    x: mm,
+    y: mm,
+    width: positiveMm,
+    height: positiveMm,
+    rotation: z.number().min(-360).max(360).default(0),
+    zIndex: z.number().int().min(0).max(10_000).default(0),
+  })
+  .superRefine(fitsOnPage);
 export type UpsertPlacementInput = z.infer<typeof UpsertPlacementInput>;
+
+/**
+ * Server-side normaliser: clamp a placement so its bounding box fits
+ * exactly inside A4. Use this *after* schema validation when persisting
+ * to the DB — it removes the slack tolerance and guarantees the stored
+ * placement renders within the printable area.
+ */
+export function normalisePlacement<
+  T extends { x: number; y: number; width: number; height: number },
+>(p: T): T {
+  const width = clamp(p.width, 1, A4.widthMm);
+  const height = clamp(p.height, 1, A4.heightMm);
+  const { x, y } = clampToPage(p.x, p.y, width, height);
+  return { ...p, x, y, width, height };
+}
 
 /** Bulk patch sent by the canvas auto-saver. */
 export const PlacementPatch = z.object({

@@ -13,7 +13,7 @@ interface ToolbarProps {
   canRedo: boolean;
   onExport: () => void;
   exporting: boolean;
-  saveStatus: 'saved' | 'saving' | 'dirty' | 'error';
+  saveStatus: 'saved' | 'saving' | 'dirty' | 'error' | 'offline';
 }
 
 export function Toolbar({
@@ -39,7 +39,7 @@ export function Toolbar({
         onChange={(e) => onTitleChange(e.target.value)}
         className="ml-2 max-w-xs rounded border border-transparent px-2 py-1 text-sm focus:border-slate-300 focus:outline-none"
       />
-      <span className="text-xs text-slate-500">{statusLabel(saveStatus)}</span>
+      <SaveStatusIndicator status={saveStatus} />
 
       <div className="ml-auto flex items-center gap-2">
         <button
@@ -92,7 +92,7 @@ export function Toolbar({
         <button
           onClick={onCalibrate}
           className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50"
-          title="Calibrate &quot;Actual size&quot; to your monitor"
+          title='Calibrate "Actual size" to your monitor'
           aria-label="Calibrate actual size"
         >
           ⚙
@@ -109,15 +109,65 @@ export function Toolbar({
   );
 }
 
-function statusLabel(s: ToolbarProps['saveStatus']): string {
+interface IndicatorStyle {
+  label: string;
+  dotClass: string;
+  textClass: string;
+  /** Semantic level for screen readers. */
+  level: 'polite' | 'assertive';
+}
+
+function indicatorStyle(s: ToolbarProps['saveStatus']): IndicatorStyle {
   switch (s) {
     case 'saved':
-      return 'All changes saved';
+      return {
+        label: 'All changes saved',
+        dotClass: 'bg-emerald-500',
+        textClass: 'text-slate-500',
+        level: 'polite',
+      };
     case 'saving':
-      return 'Saving…';
+      return {
+        label: 'Saving…',
+        dotClass: 'bg-sky-500 animate-pulse',
+        textClass: 'text-slate-500',
+        level: 'polite',
+      };
     case 'dirty':
-      return 'Unsaved changes';
+      return {
+        label: 'Unsaved changes',
+        dotClass: 'bg-amber-500',
+        textClass: 'text-slate-600',
+        level: 'polite',
+      };
     case 'error':
-      return 'Save failed — retrying';
+      return {
+        label: 'Save failed — retrying',
+        dotClass: 'bg-rose-500',
+        textClass: 'text-rose-600 font-medium',
+        level: 'assertive',
+      };
+    case 'offline':
+      return {
+        label: 'Offline — changes will save when reconnected',
+        dotClass: 'bg-rose-400',
+        textClass: 'text-rose-600 font-medium',
+        level: 'assertive',
+      };
   }
+}
+
+function SaveStatusIndicator({ status }: { status: ToolbarProps['saveStatus'] }) {
+  const s = indicatorStyle(status);
+  return (
+    <span
+      role="status"
+      aria-live={s.level}
+      className={`flex items-center gap-1.5 text-xs ${s.textClass}`}
+      title={s.label}
+    >
+      <span aria-hidden="true" className={`inline-block h-2 w-2 rounded-full ${s.dotClass}`} />
+      {s.label}
+    </span>
+  );
 }
