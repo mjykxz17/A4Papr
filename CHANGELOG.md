@@ -10,6 +10,41 @@ patch versions remain backwards-compatible bug fixes only.
 
 ## [Unreleased]
 
+### Added (product-features pass)
+
+- **Starter templates.** 4 curated cheatsheets (Calculus I, Linear
+  algebra, Algorithms, Classical mechanics) with pre-laid-out blocks.
+  `GET /api/templates` lists them; `POST /api/templates/{id}/fork`
+  copies blocks + placements into a fresh cheatsheet for the current
+  device. New `TemplatesModal` UI in the editor.
+- **Editor empty-state.** When a cheatsheet has zero placements, the
+  canvas overlays a chooser: "Use a template" / "Generate from notes" /
+  "Start blank". Niche copy is flagged in `EditorEmptyState.tsx` —
+  rewrite the headline once you commit to an audience.
+- **Public sharing + fork.** New `cheatsheets.public_slug` column
+  (16-hex random, unique). `POST /api/cheatsheets/{id}/share` mints a
+  slug; `DELETE` revokes it. `GET /share/{slug}` renders read-only.
+  `POST /api/share/{slug}/fork` copies the visible state to the
+  visitor's device. Toolbar gains a Share button + modal.
+- **Print preview toggle.** Toolbar button swaps the editor into a
+  read-only mode that hides the margin guide and selection outlines —
+  shows what the export PDF will actually contain. No more
+  export-to-check loops.
+- **Auto-pack ("Tidy") button.** Re-positions current placements via
+  the existing `layoutPlacements` shelf-pack. One snapshot on the undo
+  stack, fully reversible.
+- **Anonymous product analytics.** New `events` table; closed-set
+  event names enforced both client- and server-side. `track(name)`
+  helper uses `navigator.sendBeacon` so events survive page nav.
+  `POST /api/events` is rate-limited per device. Five events
+  instrumented: editor_opened, block_created/edited, placement_created,
+  pdf_exported, extract_used, template_forked, share_minted/revoked/
+  forked, tidy_applied, preview_toggled, claim_started.
+- **Error reporter hook.** `setErrorReporter()` registers a
+  side-channel called from `logger.error`. Default no-op; documented
+  Sentry wiring lives in `apps/web/src/instrumentation.ts` with the
+  three lines needed once `@sentry/nextjs` is added.
+
 ### Added (deployment pass)
 
 - **Vercel + Fly.io + Neon + R2 deploy spec.** `vercel.json` (build

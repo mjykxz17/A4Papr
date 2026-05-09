@@ -34,6 +34,12 @@ export const cheatsheets = pgTable(
     title: text('title').notNull(),
     paperSize: text('paper_size').notNull().default('A4'),
     orientation: text('orientation').notNull().default('portrait'),
+    /**
+     * Optional public share slug. When set, anyone with the slug can read
+     * (and fork) the cheatsheet via /share/{slug}. Setting this is opt-in
+     * — there's a "Share" button in the toolbar; default is null.
+     */
+    publicSlug: text('public_slug').unique(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -160,6 +166,34 @@ export const imageUploads = pgTable(
   }),
 );
 
+/**
+ * Anonymous product analytics. One row per significant user action;
+ * keyed by device_id, NOT user-identifying. Used to answer "what's the
+ * funnel from landing → first export?" without sending data to a third
+ * party.
+ *
+ * Names are short and stable: `landed`, `template_forked`, `extract_used`,
+ * `block_created`, `pdf_exported`, `share_minted`, `share_forked`,
+ * `share_revoked`, `tidy_applied`, `preview_toggled`. Add new names
+ * sparingly — code searching is the analytics dashboard.
+ */
+export const events = pgTable(
+  'events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    deviceId: uuid('device_id').notNull(),
+    name: text('name').notNull(),
+    /** Free-form props, kept small (≤ 1 KB after JSON encoding). */
+    props: jsonb('props').$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byDevice: index('events_device_id_idx').on(t.deviceId),
+    byCreatedAt: index('events_created_at_idx').on(t.createdAt),
+    byName: index('events_name_idx').on(t.name),
+  }),
+);
+
 export type CheatsheetRow = typeof cheatsheets.$inferSelect;
 export type NewCheatsheet = typeof cheatsheets.$inferInsert;
 export type BlockRow = typeof blocks.$inferSelect;
@@ -171,3 +205,5 @@ export type NewAiUsage = typeof aiUsage.$inferInsert;
 export type AuthClaimRow = typeof authClaims.$inferSelect;
 export type AuthTokenRow = typeof authTokens.$inferSelect;
 export type ImageUploadRow = typeof imageUploads.$inferSelect;
+export type EventRow = typeof events.$inferSelect;
+export type NewEvent = typeof events.$inferInsert;

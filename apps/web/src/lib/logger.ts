@@ -4,9 +4,27 @@
  *
  * Use a request-scoped child via `requestLogger(req)` so every line
  * carries the same `requestId`, making a single user action traceable.
+ *
+ * Error sink: `setErrorReporter()` registers a side-channel for
+ * `error`-level lines (e.g. Sentry, Honeybadger). Default is a no-op
+ * so production can choose a reporter without bundling an SDK by
+ * default.
  */
 type Level = 'debug' | 'info' | 'warn' | 'error';
 type Context = Record<string, unknown>;
+
+export type ErrorReporter = (msg: string, ctx: Context) => void;
+
+let _reporter: ErrorReporter = () => {};
+
+/**
+ * Replace the error reporter. Call this once at boot from a server-only
+ * entrypoint (e.g. an instrumentation file) once the SDK is initialised.
+ * Safe to call multiple times — last writer wins.
+ */
+export function setErrorReporter(reporter: ErrorReporter): void {
+  _reporter = reporter;
+}
 
 function emit(level: Level, msg: string, ctx: Context): void {
   const line = JSON.stringify({
@@ -15,11 +33,22 @@ function emit(level: Level, msg: string, ctx: Context): void {
     msg,
     ...ctx,
   });
-  if (level === 'error') console.error(line);
-  else if (level === 'warn') console.warn(line);
-  // info/debug go to stdout via direct write — `console.log` is banned
-  // by the project's no-console rule (only warn/error allowed).
-  else process.stdout.write(line + '\n');
+  if (level === 'error') {
+    console.error(line);
+    // Best-effort tee to the registered reporter. Wrapped in try/catch
+    // so a buggy reporter can't crash the route handler.
+    try {
+      _reporter(msg, ctx);
+    } catch {
+      // intentionally silent — the original error is already on stderr
+    }
+  } else if (level === 'warn') {
+    console.warn(line);
+  } else {
+    // info/debug go to stdout via direct write — `console.log` is banned
+    // by the project's no-console rule (only warn/error allowed).
+    process.stdout.write(line + '\n');
+  }
 }
 
 export interface Logger {
@@ -63,4 +92,4 @@ function randomId(): string {
 }
 
 /** Test helper: capture log output by stubbing console. */
-export const _internals = { emit };
+export const _internals = { emit, resetReporter: () => setErrorReporter(() => {}) };

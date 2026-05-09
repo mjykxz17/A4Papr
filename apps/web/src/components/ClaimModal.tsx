@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { track } from '@/lib/track';
 
 /**
  * "Save your library" — bind an email to this device so it can be
@@ -32,6 +33,7 @@ export function ClaimModal({ open, onClose }: { open: boolean; onClose: () => vo
         const body = (await res.json().catch(() => ({}))) as { error?: unknown };
         throw new Error(typeof body.error === 'string' ? body.error : `HTTP ${res.status}`);
       }
+      track('claim_started', {});
       setDone(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'failed');

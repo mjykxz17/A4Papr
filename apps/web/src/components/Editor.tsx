@@ -13,14 +13,18 @@ import {
 } from '@cheatsheet/shared';
 import { api } from '@/lib/api-client';
 import { useDebouncedCallback, useIsMobile, useUndoStack } from '@/lib/hooks';
+import { track } from '@/lib/track';
 import { BlockEditorModal } from './BlockEditorModal';
 import { CalibrationModal, readCalibration } from './CalibrationModal';
 import { Canvas } from './Canvas';
 import { ClaimModal } from './ClaimModal';
 import { ContextMenu, type ContextMenuEntry } from './ContextMenu';
+import { EditorEmptyState } from './EditorEmptyState';
 import { ExtractModal } from './ExtractModal';
 import { MobileGate } from './MobileGate';
+import { ShareModal } from './ShareModal';
 import { Sidebar } from './Sidebar';
+import { TemplatesModal } from './TemplatesModal';
 import { Toolbar } from './Toolbar';
 
 type SaveStatus = 'saved' | 'saving' | 'dirty' | 'error' | 'offline';
@@ -55,6 +59,9 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary, aiEnable
   const [calibrationOpen, setCalibrationOpen] = useState(false);
   const [claimOpen, setClaimOpen] = useState(false);
   const [extractOpen, setExtractOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [previewMode, setPreviewMode] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
   const [contextMenu, setContextMenu] = useState<
@@ -119,6 +126,7 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary, aiEnable
       undo.set((prev) => [...prev, placement]);
       queueUpsert(placement);
       setSelectedId(id);
+      track('placement_created', { blockType: block.type });
     },
     [blocksById, cheatsheet.id, placements, undo, queueUpsert],
   );
@@ -221,6 +229,12 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary, aiEnable
     if (saveStatus === 'dirty') debouncedFlush();
   }, [saveStatus, debouncedFlush]);
 
+  // Fire one analytics event per editor mount so we can measure
+  // landing → editor conversion in the funnel.
+  useEffect(() => {
+    track('editor_opened', { cheatsheetId: cheatsheet.id });
+  }, [cheatsheet.id]);
+
   // Track online/offline so the user knows when their auto-saves are
   // queued vs persisted. On reconnect we kick the flush ourselves —
   // the patch queue still holds the unsent writes.
@@ -280,9 +294,11 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary, aiEnable
           tags: input.tags,
         });
         setLibrary((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
+        track('block_edited', { blockId: updated.id, type: updated.type });
       } else {
         const created = await api.createBlock(input);
         setLibrary((prev) => [...prev, created]);
+        track('block_created', { type: created.type });
       }
       setModalOpen(false);
       setEditingBlock(null);
@@ -321,13 +337,56 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary, aiEnable
       a.download = `${title.replace(/[^\p{L}\p{N}]+/gu, '_') || 'cheatsheet'}_${today}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
+      track('pdf_exported', { cheatsheetId: cheatsheet.id, blocks: placements.length });
     } catch (e) {
       console.error('export failed', e);
       alert(e instanceof Error ? e.message : 'Export failed');
     } finally {
       setExporting(false);
     }
-  }, [flushPending, cheatsheet.id, title]);
+  }, [flushPending, cheatsheet.id, title, placements.length]);
+
+  /* ---------------------- tidy / auto-pack ---------------------- */
+
+  const onTidy = useCallback(() => {
+    if (placements.length === 0) return;
+    // layoutPlacements doesn't know about specific block content; pass
+    // each placement's current size as a hint so blocks keep their
+    // existing dimensions, and only re-position. The bin-packer
+    // arranges them top→bottom, left→right within the printable area.
+    const boxes = layoutPlacements(
+      placements.map((p) => {
+        const block = blocksById.get(p.blockId);
+        return { type: block?.type ?? 'text', width: p.width, height: p.height };
+      }),
+      [],
+    );
+    undo.set((prev) =>
+      prev.map((p, i) => {
+        const box = boxes[i];
+        if (!box) return p;
+        const next: BlockPlacement = {
+          ...p,
+          x: box.x,
+          y: box.y,
+          width: box.width,
+          height: box.height,
+        };
+        queueUpsert(next);
+        return next;
+      }),
+    );
+    track('tidy_applied', { count: placements.length });
+  }, [placements, blocksById, undo, queueUpsert]);
+
+  /* ---------------------- preview toggle ---------------------- */
+
+  const onTogglePreview = useCallback(() => {
+    setPreviewMode((p) => {
+      track('preview_toggled', { from: p ? 'preview' : 'edit' });
+      return !p;
+    });
+  }, []);
 
   /* ---------------------- keyboard ---------------------- */
 
@@ -425,6 +484,10 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary, aiEnable
         canRedo={undo.canRedo}
         onExport={onExport}
         onClaim={() => setClaimOpen(true)}
+        onShare={() => setShareOpen(true)}
+        onTidy={onTidy}
+        onTogglePreview={onTogglePreview}
+        previewMode={previewMode}
         exporting={exporting}
         saveStatus={saveStatus}
       />
@@ -446,23 +509,41 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary, aiEnable
             setContextMenu({ kind: 'libraryBlock', x: clientX, y: clientY, blockId: block.id })
           }
         />
-        <main className="flex-1 overflow-hidden">
+        <main className={`relative flex-1 overflow-hidden ${previewMode ? 'preview-mode' : ''}`}>
           <Canvas
             placements={placements}
             blocks={blocksById}
             zoom={zoom}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-            onUpdate={updatePlacement}
-            onCreatePlacement={createPlacement}
-            onContextMenu={({ clientX, clientY, placementId }) =>
-              setContextMenu({ kind: 'placement', x: clientX, y: clientY, placementId })
+            selectedId={previewMode ? null : selectedId}
+            onSelect={previewMode ? () => {} : setSelectedId}
+            onUpdate={previewMode ? () => {} : updatePlacement}
+            onCreatePlacement={previewMode ? () => {} : createPlacement}
+            onContextMenu={
+              previewMode
+                ? undefined
+                : ({ clientX, clientY, placementId }) =>
+                    setContextMenu({ kind: 'placement', x: clientX, y: clientY, placementId })
             }
-            onEditBlock={(block) => {
-              setEditingBlock(block);
-              setModalOpen(true);
-            }}
+            onEditBlock={
+              previewMode
+                ? undefined
+                : (block) => {
+                    setEditingBlock(block);
+                    setModalOpen(true);
+                  }
+            }
           />
+          {placements.length === 0 && !previewMode && (
+            <EditorEmptyState
+              onUseTemplate={() => setTemplatesOpen(true)}
+              onGenerate={() => setExtractOpen(true)}
+              onAddBlock={() => {
+                setEditingBlock(null);
+                setModalOpen(true);
+              }}
+              aiEnabled={aiEnabled}
+            />
+          )}
         </main>
       </div>
 
@@ -483,6 +564,14 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary, aiEnable
       />
 
       <ClaimModal open={claimOpen} onClose={() => setClaimOpen(false)} />
+
+      <ShareModal
+        open={shareOpen}
+        cheatsheetId={cheatsheet.id}
+        onClose={() => setShareOpen(false)}
+      />
+
+      <TemplatesModal open={templatesOpen} onClose={() => setTemplatesOpen(false)} />
 
       <ExtractModal
         open={extractOpen}

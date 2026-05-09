@@ -13,6 +13,10 @@ interface ToolbarProps {
   canRedo: boolean;
   onExport: () => void;
   onClaim: () => void;
+  onShare: () => void;
+  onTidy: () => void;
+  onTogglePreview: () => void;
+  previewMode: boolean;
   exporting: boolean;
   saveStatus: 'saved' | 'saving' | 'dirty' | 'error' | 'offline';
 }
@@ -30,6 +34,10 @@ export function Toolbar({
   canRedo,
   onExport,
   onClaim,
+  onShare,
+  onTidy,
+  onTogglePreview,
+  previewMode,
   exporting,
   saveStatus,
 }: ToolbarProps) {
@@ -98,6 +106,32 @@ export function Toolbar({
           aria-label="Calibrate actual size"
         >
           ⚙
+        </button>
+        <button
+          onClick={onTidy}
+          className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50"
+          title="Auto-pack placements onto the page (left→right, top→bottom)"
+        >
+          Tidy
+        </button>
+        <button
+          onClick={onTogglePreview}
+          className={`rounded border px-2 py-1 text-xs ${
+            previewMode
+              ? 'border-accent bg-accent/10 text-accent-dark'
+              : 'border-slate-300 hover:bg-slate-50'
+          }`}
+          title="Toggle print preview (matches the exported PDF)"
+          aria-pressed={previewMode}
+        >
+          {previewMode ? 'Editing' : 'Preview'}
+        </button>
+        <button
+          onClick={onShare}
+          className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50"
+          title="Generate a public read-only link that anyone can fork"
+        >
+          Share
         </button>
         <button
           onClick={onClaim}

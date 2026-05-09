@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import type { Block, BlockContent, BlockType, CreateBlockInput } from '@cheatsheet/shared';
 import { api } from '@/lib/api-client';
 import { parseMarkdownBlocks } from '@/lib/markdown-import';
+import { track } from '@/lib/track';
 import { BlockView } from './blocks/BlockView';
 
 /**
@@ -163,6 +164,11 @@ export function ExtractModal({ open, aiAvailable, onClose, onAdded }: Props) {
       setSelected(new Set(data.blocks.map((_, i) => i)));
       setUsage(data.usage);
       setPhase('review');
+      track('extract_used', {
+        blocks: data.blocks.length,
+        inputTokens: data.usage.inputTokens,
+        outputTokens: data.usage.outputTokens,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'extraction failed');
     } finally {

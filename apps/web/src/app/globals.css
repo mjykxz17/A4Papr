@@ -84,3 +84,23 @@ body {
     box-shadow: none;
   }
 }
+
+/* On-screen print preview — toolbar's "Preview" toggle adds
+   .preview-mode to the canvas wrapper. Hides the margin guide,
+   selection outlines, and pointer affordances so the user sees
+   exactly what the export PDF will contain. */
+.preview-mode .a4-margin-guide {
+  display: none;
+}
+.preview-mode .canvas-block.selected {
+  outline: none;
+}
+.preview-mode .canvas-block,
+.preview-mode .canvas-block * {
+  cursor: default !important;
+}
+.preview-mode .a4-page {
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.06),
+    0 4px 24px rgba(15, 23, 42, 0.08);
+}
