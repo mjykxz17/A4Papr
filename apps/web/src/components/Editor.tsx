@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   defaultPlacementSize,
   layoutPlacements,
+  packPlacements,
   type Block,
   type BlockContent,
   type BlockPlacement,
@@ -50,6 +51,7 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary, aiEnable
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [title, setTitle] = useState(cheatsheet.title);
+  const [fontScale, setFontScale] = useState(cheatsheet.fontScale);
   const [editingBlock, setEditingBlock] = useState<Block | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [calibrationOpen, setCalibrationOpen] = useState(false);
@@ -158,6 +160,17 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary, aiEnable
     },
     [placements, undo, queueUpsert],
   );
+
+  /**
+   * Re-pack every placement into a tight reading-order grid. One undo
+   * entry; every moved placement is queued for auto-save.
+   */
+  const autoPack = useCallback(() => {
+    if (placements.length === 0) return;
+    const packed = packPlacements(placements);
+    undo.set(() => packed);
+    for (const p of packed) queueUpsert(p);
+  }, [placements, undo, queueUpsert]);
 
   const sendToBack = useCallback(
     (id: string) => {
@@ -408,6 +421,28 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary, aiEnable
     [debouncedTitleSave],
   );
 
+  /* ---------------------- density (font scale) ---------------------- */
+
+  const debouncedScaleSave = useDebouncedCallback(async (next: number) => {
+    try {
+      await fetch(`/api/cheatsheets/${cheatsheet.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ fontScale: next }),
+      });
+    } catch (e) {
+      console.error('font scale save failed', e);
+    }
+  }, 500);
+
+  const onFontScaleChange = useCallback(
+    (next: number) => {
+      setFontScale(next);
+      debouncedScaleSave(next);
+    },
+    [debouncedScaleSave],
+  );
+
   if (isMobile) return <MobileGate />;
 
   return (
@@ -423,6 +458,10 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary, aiEnable
         onRedo={undo.redo}
         canUndo={undo.canUndo}
         canRedo={undo.canRedo}
+        onAutoPack={autoPack}
+        canAutoPack={placements.length > 0}
+        fontScale={fontScale}
+        onFontScaleChange={onFontScaleChange}
         onExport={onExport}
         onClaim={() => setClaimOpen(true)}
         exporting={exporting}
@@ -451,6 +490,7 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary, aiEnable
             placements={placements}
             blocks={blocksById}
             zoom={zoom}
+            fontScale={fontScale}
             selectedId={selectedId}
             onSelect={setSelectedId}
             onUpdate={updatePlacement}

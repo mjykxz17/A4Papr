@@ -10,6 +10,26 @@ patch versions remain backwards-compatible bug fixes only.
 
 ## [Unreleased]
 
+### Added (competitive-gap pass: multimodal extract + density)
+
+- **Multimodal AI extraction.** `/api/extract` now accepts attached
+  slide images (PNG / JPEG / GIF / WEBP) and lecture PDFs alongside —
+  or instead of — pasted text. Images go to Claude as image content
+  blocks, PDFs as document blocks. Attachment MIME is verified from
+  magic bytes (declared type is only a hint); base64 is strict; caps
+  are 4 files, 2 MB/file, 3 MB total (sized to stay under serverless
+  body limits — see `apps/web/src/lib/extract-files.ts`). The
+  ExtractModal grows an "Attach slides / PDF" picker with drag-drop.
+- **Auto-pack.** Toolbar button that re-packs every placement into a
+  tight reading-order shelf grid inside the printable area
+  (`packPlacements` in `@cheatsheet/shared`). One undo entry; all
+  moves flow through the normal auto-save patch queue.
+- **Density slider.** Sheet-wide font scale (70–130%) stored on the
+  cheatsheet (`font_scale` column, migration 0002). Block views size
+  text as `calc(<base>pt * var(--font-scale, 1))`, so the editor
+  canvas and the `/print/:id` PDF render pick up the same multiplier;
+  sidebar previews fall back to 1×.
+
 ### Added (post-review hardening pass, second iteration)
 
 - **Magic-link claim flow.** `auth_claims` + `auth_tokens` tables,

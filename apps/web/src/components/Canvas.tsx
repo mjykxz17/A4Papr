@@ -10,6 +10,8 @@ interface CanvasProps {
   placements: BlockPlacement[];
   blocks: Map<string, Block>;
   zoom: number;
+  /** Sheet-wide text density multiplier (see FONT_SCALE in shared). */
+  fontScale: number;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onUpdate: (id: string, patch: Partial<BlockPlacement>) => void;
@@ -33,6 +35,7 @@ export function Canvas({
   placements,
   blocks,
   zoom,
+  fontScale,
   selectedId,
   onSelect,
   onUpdate,
@@ -71,8 +74,11 @@ export function Canvas({
       width: PAGE_WIDTH_PX_AT_100 * zoom,
       height: PAGE_HEIGHT_PX_AT_100 * zoom,
       ['--margin-px' as string]: `${A4.marginMm * pxPerMm}px`,
+      // Block views compute font sizes as calc(<base>pt * var(--font-scale, 1)),
+      // so the same multiplier drives the editor and the print render.
+      ['--font-scale' as string]: String(fontScale),
     }),
-    [zoom, pxPerMm],
+    [zoom, pxPerMm, fontScale],
   );
 
   const handleDrop = useCallback(

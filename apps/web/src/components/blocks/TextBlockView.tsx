@@ -72,11 +72,7 @@ function renderMarkdown(md: string): ReactNode {
     }
     flushList();
     if (raw.trim() === '') continue;
-    blocks.push(
-      <p key={`p-${i++}`}>
-        {renderInline(raw, `p-${i}`)}
-      </p>,
-    );
+    blocks.push(<p key={`p-${i++}`}>{renderInline(raw, `p-${i}`)}</p>);
   }
   flushList();
   return <Fragment>{blocks}</Fragment>;
@@ -86,7 +82,13 @@ export function TextBlockView({ content }: { content: TextBlockContent }) {
   return (
     <div
       className="h-full w-full overflow-hidden p-1 leading-tight"
-      style={{ fontSize: `${FONT_PT[content.fontSize]}pt`, textAlign: content.align }}
+      // --font-scale is the sheet-wide density multiplier, set on the
+      // canvas page / print root; contexts without it (sidebar
+      // previews) fall back to 1.
+      style={{
+        fontSize: `calc(${FONT_PT[content.fontSize]}pt * var(--font-scale, 1))`,
+        textAlign: content.align,
+      }}
     >
       {renderMarkdown(content.markdown)}
     </div>

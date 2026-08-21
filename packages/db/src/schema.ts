@@ -34,6 +34,8 @@ export const cheatsheets = pgTable(
     title: text('title').notNull(),
     paperSize: text('paper_size').notNull().default('A4'),
     orientation: text('orientation').notNull().default('portrait'),
+    /** Sheet-wide text density multiplier (see FONT_SCALE in shared). */
+    fontScale: doublePrecision('font_scale').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },

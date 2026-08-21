@@ -1,0 +1,1 @@
+ALTER TABLE "cheatsheets" ADD COLUMN "font_scale" double precision DEFAULT 1 NOT NULL;
