@@ -29,7 +29,9 @@ export function FormulaBlockView({ content }: { content: FormulaBlockContent }) 
     <div
       ref={ref}
       className="flex h-full w-full items-center justify-center overflow-hidden p-1"
-      style={{ fontSize: '8pt' }}
+      // KaTeX sizes in em, so scaling the wrapper font scales the whole
+      // formula. --font-scale is the sheet density multiplier.
+      style={{ fontSize: 'calc(8pt * var(--font-scale, 1))' }}
     />
   );
 }

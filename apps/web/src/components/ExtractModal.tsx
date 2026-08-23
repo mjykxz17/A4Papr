@@ -1,8 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Block, BlockContent, BlockType, CreateBlockInput } from '@cheatsheet/shared';
 import { api } from '@/lib/api-client';
+import {
+  EXTRACT_FILE_ACCEPT,
+  isExtractFileMime,
+  MAX_EXTRACT_FILE_BYTES,
+  MAX_EXTRACT_FILES,
+  MAX_EXTRACT_TOTAL_BYTES,
+  type ExtractAttachment,
+} from '@/lib/extract-files';
 import { parseMarkdownBlocks } from '@/lib/markdown-import';
 import { BlockView } from './blocks/BlockView';
 
@@ -100,9 +108,33 @@ function isExtractionPayload(v: unknown): v is { blocks: ProposedBlock[] } {
   );
 }
 
+interface PendingFile extends ExtractAttachment {
+  bytes: number;
+}
+
+/** Read a File to raw base64 (data: prefix stripped). */
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error(`could not read ${file.name}`));
+    reader.onload = () => {
+      const result = reader.result as string;
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function formatBytes(n: number): string {
+  return n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(n / 1024)} KB`;
+}
+
 export function ExtractModal({ open, aiAvailable, onClose, onAdded }: Props) {
   const [phase, setPhase] = useState<'input' | 'review'>('input');
   const [text, setText] = useState('');
+  const [files, setFiles] = useState<PendingFile[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [proposed, setProposed] = useState<ProposedBlock[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -132,6 +164,42 @@ export function ExtractModal({ open, aiAvailable, onClose, onAdded }: Props) {
     setError(null);
   };
 
+  const addFiles = async (incoming: FileList | File[]) => {
+    setError(null);
+    const next = [...files];
+    for (const file of Array.from(incoming)) {
+      if (next.length >= MAX_EXTRACT_FILES) {
+        setError(`max ${MAX_EXTRACT_FILES} attachments`);
+        break;
+      }
+      const mediaType = file.type;
+      if (!isExtractFileMime(mediaType)) {
+        setError(`${file.name}: only PNG, JPEG, GIF, WEBP or PDF`);
+        continue;
+      }
+      if (file.size > MAX_EXTRACT_FILE_BYTES) {
+        setError(`${file.name}: over ${formatBytes(MAX_EXTRACT_FILE_BYTES)} per file`);
+        continue;
+      }
+      const totalBytes = next.reduce((sum, f) => sum + f.bytes, 0);
+      if (totalBytes + file.size > MAX_EXTRACT_TOTAL_BYTES) {
+        setError(`attachments over ${formatBytes(MAX_EXTRACT_TOTAL_BYTES)} total`);
+        break;
+      }
+      try {
+        const data = await readFileAsBase64(file);
+        next.push({ name: file.name, mediaType, data, bytes: file.size });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : `could not read ${file.name}`);
+      }
+    }
+    setFiles(next);
+  };
+
+  const removeFile = (i: number) => {
+    setFiles((prev) => prev.filter((_, idx) => idx !== i));
+  };
+
   const callClaude = async () => {
     setBusy(true);
     setError(null);
@@ -140,7 +208,10 @@ export function ExtractModal({ open, aiAvailable, onClose, onAdded }: Props) {
       const res = await fetch('/api/extract', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({
+          text,
+          files: files.map((f) => ({ mediaType: f.mediaType, data: f.data, name: f.name })),
+        }),
         credentials: 'same-origin',
       });
       if (!res.ok) {
@@ -237,6 +308,7 @@ export function ExtractModal({ open, aiAvailable, onClose, onAdded }: Props) {
       onAdded(created, { placeOnCanvas });
       reset();
       setText('');
+      setFiles([]);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'failed to add blocks');
@@ -258,7 +330,7 @@ export function ExtractModal({ open, aiAvailable, onClose, onAdded }: Props) {
           <div>
             <h2 className="text-base font-medium">Generate from notes</h2>
             <p className="mt-1 text-xs text-slate-500">
-              Paste lecture notes; review proposed blocks; pick which to keep.
+              Paste lecture notes or attach slides; review proposed blocks; pick which to keep.
             </p>
           </div>
           <button onClick={onClose} className="text-slate-500 hover:text-slate-700">
@@ -267,7 +339,17 @@ export function ExtractModal({ open, aiAvailable, onClose, onAdded }: Props) {
         </header>
 
         {phase === 'input' && (
-          <div className="flex flex-1 flex-col gap-3 px-4 py-4">
+          <div
+            className="flex flex-1 flex-col gap-3 px-4 py-4"
+            onDragOver={(e) => {
+              if (aiAvailable) e.preventDefault();
+            }}
+            onDrop={(e) => {
+              if (!aiAvailable) return;
+              e.preventDefault();
+              if (e.dataTransfer.files.length > 0) void addFiles(e.dataTransfer.files);
+            }}
+          >
             <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
               <button
                 type="button"
@@ -308,8 +390,53 @@ export function ExtractModal({ open, aiAvailable, onClose, onAdded }: Props) {
               placeholder="Paste lecture notes (raw text), or the markdown / JSON your chatbot produced from the prompt above."
               className="flex-1 resize-none rounded border border-slate-300 px-3 py-2 font-mono text-sm focus:border-accent focus:outline-none"
             />
+            {aiAvailable && (
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept={EXTRACT_FILE_ACCEPT}
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files) void addFiles(e.target.files);
+                    e.target.value = '';
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={busy || files.length >= MAX_EXTRACT_FILES}
+                  className="rounded border border-dashed border-slate-300 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                  title={`Attach slide images or a lecture PDF (max ${MAX_EXTRACT_FILES} files, ${formatBytes(MAX_EXTRACT_TOTAL_BYTES)} total) — Claude reads them directly`}
+                >
+                  📎 Attach slides / PDF
+                </button>
+                {files.map((f, i) => (
+                  <span
+                    key={`${f.name}-${i}`}
+                    className="flex items-center gap-1.5 rounded bg-slate-100 px-2 py-1 text-xs text-slate-700"
+                  >
+                    <span className="max-w-[12rem] truncate">{f.name}</span>
+                    <span className="text-slate-400">{formatBytes(f.bytes)}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeFile(i)}
+                      className="text-slate-400 hover:text-slate-700"
+                      aria-label={`Remove ${f.name}`}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
             <div className="flex items-center justify-between text-xs text-slate-500">
-              <span>{text.length.toLocaleString()} / 50,000 characters</span>
+              <span>
+                {text.length.toLocaleString()} / 50,000 characters
+                {files.length > 0 &&
+                  ` · ${files.length} attachment${files.length === 1 ? '' : 's'}`}
+              </span>
               {error && <span className="text-red-600">{error}</span>}
             </div>
             <div className="flex flex-wrap justify-end gap-2">
@@ -331,7 +458,7 @@ export function ExtractModal({ open, aiAvailable, onClose, onAdded }: Props) {
               {aiAvailable && (
                 <button
                   onClick={callClaude}
-                  disabled={busy || text.trim().length < 20}
+                  disabled={busy || (text.trim().length < 20 && files.length === 0)}
                   className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-dark disabled:opacity-50"
                 >
                   {busy ? 'Generating…' : 'Generate with Claude'}

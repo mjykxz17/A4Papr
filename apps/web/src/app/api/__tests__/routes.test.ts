@@ -245,6 +245,45 @@ describe('POST /api/extract', () => {
     expect(res.status).toBe(400);
   });
 
+  it('returns 400 when an attachment is not raw base64', async () => {
+    await setValidSession();
+    process.env.ANTHROPIC_API_KEY = 'sk-test';
+    const { _resetEnvCache } = await import('@/lib/env');
+    _resetEnvCache();
+    const { _resetExtractLimiter } = await import('@/lib/extract-rate-limit');
+    _resetExtractLimiter();
+    const { POST } = await import('../extract/route.js');
+    const res = await POST(
+      buildRequest(`${TEST_APP_URL}/api/extract`, {
+        method: 'POST',
+        body: {
+          files: [{ mediaType: 'image/png', data: 'data:image/png;base64,AAAA', name: 'x.png' }],
+        },
+      }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 415 when attachment bytes are not a supported image or PDF', async () => {
+    await setValidSession();
+    process.env.ANTHROPIC_API_KEY = 'sk-test';
+    const { _resetEnvCache } = await import('@/lib/env');
+    _resetEnvCache();
+    const { _resetExtractLimiter } = await import('@/lib/extract-rate-limit');
+    _resetExtractLimiter();
+    const { POST } = await import('../extract/route.js');
+    // Valid base64, but the decoded bytes are plain text — the declared
+    // image/png must not be trusted.
+    const data = Buffer.from('<svg>not really an image</svg>').toString('base64');
+    const res = await POST(
+      buildRequest(`${TEST_APP_URL}/api/extract`, {
+        method: 'POST',
+        body: { files: [{ mediaType: 'image/png', data, name: 'fake.png' }] },
+      }),
+    );
+    expect(res.status).toBe(415);
+  });
+
   it('returns 429 when the per-device rate limit is exhausted', async () => {
     await setValidSession();
     process.env.ANTHROPIC_API_KEY = 'sk-test';

@@ -13,7 +13,10 @@ export function TableBlockView({ content }: { content: TableBlockContent }) {
 
   return (
     <div className="h-full w-full overflow-hidden p-1">
-      <table className="w-full border-collapse" style={{ fontSize: '7pt' }}>
+      <table
+        className="w-full border-collapse"
+        style={{ fontSize: 'calc(7pt * var(--font-scale, 1))' }}
+      >
         <thead>
           <tr>
             {content.headers.map((h, i) => (

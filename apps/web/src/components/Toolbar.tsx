@@ -1,5 +1,7 @@
 'use client';
 
+import { FONT_SCALE } from '@cheatsheet/shared';
+
 interface ToolbarProps {
   title: string;
   onTitleChange: (title: string) => void;
@@ -11,6 +13,10 @@ interface ToolbarProps {
   onRedo: () => void;
   canUndo: boolean;
   canRedo: boolean;
+  onAutoPack: () => void;
+  canAutoPack: boolean;
+  fontScale: number;
+  onFontScaleChange: (scale: number) => void;
   onExport: () => void;
   onClaim: () => void;
   exporting: boolean;
@@ -28,6 +34,10 @@ export function Toolbar({
   onRedo,
   canUndo,
   canRedo,
+  onAutoPack,
+  canAutoPack,
+  fontScale,
+  onFontScaleChange,
   onExport,
   onClaim,
   exporting,
@@ -60,6 +70,39 @@ export function Toolbar({
         >
           ↷
         </button>
+        <button
+          onClick={onAutoPack}
+          disabled={!canAutoPack}
+          className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50 disabled:opacity-40"
+          title="Re-pack all blocks into a tight top-left grid (undoable with ⌘Z)"
+        >
+          Auto-pack
+        </button>
+        <label
+          className="flex items-center gap-1.5 rounded border border-slate-300 px-2 py-1"
+          title="Density — scales every block's text on this sheet (and the exported PDF)"
+        >
+          <span aria-hidden="true" className="text-[10px] text-slate-500">
+            A
+          </span>
+          <input
+            type="range"
+            min={FONT_SCALE.min}
+            max={FONT_SCALE.max}
+            step={FONT_SCALE.step}
+            value={fontScale}
+            onChange={(e) => onFontScaleChange(Number(e.target.value))}
+            onDoubleClick={() => onFontScaleChange(FONT_SCALE.default)}
+            className="h-1 w-16 accent-slate-600"
+            aria-label="Text density"
+          />
+          <span aria-hidden="true" className="text-sm leading-none text-slate-500">
+            A
+          </span>
+          <span className="w-9 text-right text-xs tabular-nums text-slate-600">
+            {Math.round(fontScale * 100)}%
+          </span>
+        </label>
         <div className="flex items-center rounded border border-slate-300">
           <button
             onClick={() => onZoomChange(Math.max(0.25, zoom - 0.1))}

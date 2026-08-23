@@ -49,6 +49,7 @@ export default async function EditorPage({ params }: PageProps) {
     title: sheet.title,
     paperSize: 'A4',
     orientation: 'portrait',
+    fontScale: sheet.fontScale,
     createdAt: sheet.createdAt.toISOString(),
     updatedAt: sheet.updatedAt.toISOString(),
   };

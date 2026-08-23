@@ -148,12 +148,20 @@ export const BlockPlacement = z
   .superRefine(fitsOnPage);
 export type BlockPlacement = z.infer<typeof BlockPlacement>;
 
+/**
+ * Bounds for the cheatsheet-wide font scale (the toolbar density
+ * control). 1 = the block types' native pt sizes; below 1 crams more
+ * onto the page, above 1 trades density for legibility.
+ */
+export const FONT_SCALE = { min: 0.7, max: 1.3, step: 0.05, default: 1 } as const;
+
 export const Cheatsheet = z.object({
   id: uuid,
   deviceId: uuid,
   title: z.string().min(1).max(200),
   paperSize: z.literal('A4'),
   orientation: z.literal('portrait'),
+  fontScale: z.number().min(FONT_SCALE.min).max(FONT_SCALE.max).default(FONT_SCALE.default),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -317,6 +325,46 @@ export function layoutPlacements(
     cursorX = x + w + gap;
     rowHeight = Math.max(rowHeight, h);
   }
+  return out;
+}
+
+/**
+ * Re-pack every placement into the printable area in reading order
+ * (top-to-bottom, then left-to-right), preserving each placement's
+ * size. Powers the toolbar "Auto-pack" action: the eyeballed layout
+ * becomes a tight top-left shelf grid with `gapMm` between blocks.
+ *
+ * Returns a new array in the *same order* as the input (so ids/zIndex
+ * stay aligned) with updated x/y and clamped width/height. Like
+ * `layoutPlacements`, overflow past the bottom margin is clamped, not
+ * rejected — blocks that don't fit stack at the bottom edge.
+ */
+export function packPlacements<T extends { x: number; y: number; width: number; height: number }>(
+  placements: T[],
+  options: { gapMm?: number } = {},
+): T[] {
+  if (placements.length === 0) return [];
+  const order = placements
+    .map((_, i) => i)
+    .sort((a, b) => {
+      const pa = placements[a]!;
+      const pb = placements[b]!;
+      return pa.y - pb.y || pa.x - pb.x;
+    });
+  const boxes = layoutPlacements(
+    order.map((i) => ({
+      type: 'text' as const, // size is always given, so type never matters
+      width: placements[i]!.width,
+      height: placements[i]!.height,
+    })),
+    [],
+    options,
+  );
+  const out = placements.slice();
+  order.forEach((origIdx, j) => {
+    const box = boxes[j]!;
+    out[origIdx] = { ...placements[origIdx]!, ...box };
+  });
   return out;
 }
 

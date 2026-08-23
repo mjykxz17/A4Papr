@@ -55,6 +55,10 @@ export default async function PrintPage({ params, searchParams }: PageProps) {
         position: 'relative',
         background: 'white',
         overflow: 'hidden',
+        // Sheet-wide density: block views size fonts with
+        // calc(<base>pt * var(--font-scale, 1)), so screen and PDF
+        // pick up the same multiplier.
+        ['--font-scale' as string]: String(sheet.fontScale),
       }}
     >
       {placements.map((p) => {
