@@ -163,13 +163,17 @@ export function Editor({ cheatsheet, initialPlacements, initialLibrary, aiEnable
 
   /**
    * Re-pack every placement into a tight reading-order grid. One undo
-   * entry; every moved placement is queued for auto-save.
+   * entry; every moved placement is queued for auto-save. Clears the
+   * selection — Moveable's control frame caches the target's rect, so
+   * keeping a selection across a global reflow leaves the handles at
+   * the placement's old position.
    */
   const autoPack = useCallback(() => {
     if (placements.length === 0) return;
     const packed = packPlacements(placements);
     undo.set(() => packed);
     for (const p of packed) queueUpsert(p);
+    setSelectedId(null);
   }, [placements, undo, queueUpsert]);
 
   const sendToBack = useCallback(
